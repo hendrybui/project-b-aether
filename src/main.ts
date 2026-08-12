@@ -633,6 +633,9 @@ function setupAI(): void {
 
   // AudioMass LLM bridge
   setupAudioMassLLMBridge();
+
+  // Music Tools melody bridge (companion app popup -> sequencer)
+  setupMelodyGeneratorBridge();
 }
 
 // ===== Bounce (WAV export for AudioMass) =====
@@ -916,6 +919,92 @@ function setupAudioMassLLMBridge(): void {
   });
 
   setupAudioMassJobMonitor();
+}
+
+// ===== Music Tools / Melody Suite melody bridge (postMessage from the
+// companion apps). Both send the same contract: {source, version, bpm, key,
+// scale, notes:[{midi, beats}]}, where midi === null encodes a rest.
+const MELODY_BRIDGE_SOURCES = ['music-tools-melody', 'melody-suite-melody'] as const;
+const MELODY_STUDIO_URL = 'http://localhost:5000/tools/melody-sheet/melody-studio';
+const MELODY_SUITE_AI_URL = 'http://localhost:5000/tools/melody-sheet/ai-melody-generator';
+
+function setupMelodyGeneratorBridge(): void {
+  const openBtn = document.getElementById('mt-open-btn');
+  const msOpenBtn = document.getElementById('ms-open-btn');
+  const statusEl = document.getElementById('mt-status');
+  const say = (msg: string) => {
+    if (!statusEl) return;
+    statusEl.textContent = msg;
+    window.setTimeout(() => {
+      if (statusEl.textContent === msg) statusEl.textContent = '';
+    }, 6000);
+  };
+
+  openBtn?.addEventListener('click', () => {
+    window.open(MELODY_STUDIO_URL, 'aether-melody-gen');
+    say('Melody Studio (:5000) opened — generate ideas, then click “Send to Aether” on one.');
+  });
+
+  msOpenBtn?.addEventListener('click', () => {
+    window.open(MELODY_SUITE_AI_URL, 'aether-melody-gen');
+    say('Melody Suite AI generator (:5000) opened — generate ideas, then click “⇢ Send to Aether” on one.');
+  });
+
+  window.addEventListener('message', async (ev: MessageEvent) => {
+    const d = ev.data as
+      | { source?: unknown; version?: unknown; bpm?: unknown; key?: unknown; scale?: unknown; notes?: unknown }
+      | null;
+    if (!d || !(MELODY_BRIDGE_SOURCES as readonly unknown[]).includes(d.source) || d.version !== 1) return;
+    let host = '';
+    try { host = new URL(ev.origin).hostname; } catch { /* ignore */ }
+    if (host !== 'localhost' && host !== '127.0.0.1') return;
+    if (!Array.isArray(d.notes) || d.notes.length === 0) {
+      say('Melody ignored — empty note list.');
+      return;
+    }
+    const bpm = typeof d.bpm === 'number' && d.bpm >= 40 && d.bpm <= 240 ? Math.round(d.bpm) : tempoBpm;
+    const key = typeof d.key === 'string' ? d.key : '';
+    const scale = typeof d.scale === 'string' ? d.scale : '';
+
+    await ensureAudio();
+    let written = 0;
+    runOnPattern((p) => {
+      const t = p.tracks.find(tr => tr.id === 'synth');
+      if (!t) return;
+      // Clear the SYN lane, then quantize the melody: 1 step per beat of the
+      // melody (same convention as the built-in melody generator). Rests
+      // (midi === null) leave gaps. Notes lasting >1 beat set only their
+      // onset step — the sequencer retriggers per step by design.
+      for (let i = 0; i < t.steps.length; i++) t.steps[i] = { on: false, vel: 0, midi: t.steps[i].midi };
+      let beatPos = 0;
+      for (const n of d.notes as { midi?: number | null; beats?: number }[]) {
+        const midi = typeof n?.midi === 'number' ? n.midi : null;
+        const beats = typeof n?.beats === 'number' && n.beats > 0 ? n.beats : 1;
+        if (midi !== null) {
+          const step = Math.floor(beatPos + 0.0001);
+          if (step >= 0 && step < p.length) {
+            t.steps[step] = { on: true, vel: 0.9, midi };
+            written++;
+          }
+        }
+        beatPos += beats;
+      }
+    });
+
+    // Tempo follows the melody so the loop lands at the generated BPM.
+    if (bpm !== tempoBpm) {
+      tempoBpm = bpm;
+      const slider = document.getElementById('tempo-slider') as HTMLInputElement | null;
+      const disp = document.getElementById('tempo-display');
+      if (slider) slider.value = String(bpm);
+      if (disp) disp.textContent = String(bpm);
+      sequencer.setTempo(bpm);
+      synth.setParam('tempo', bpm);
+    }
+
+    const label = [key, scale].filter(Boolean).join(' ');
+    say(`Melody received${label ? ` (${label})` : ''} — ${written} notes written to SYN lane at ${bpm} BPM. Press Play.`);
+  });
 }
 
 // ===== AudioMass live job progress =====

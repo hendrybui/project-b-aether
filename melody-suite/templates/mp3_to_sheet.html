@@ -1,0 +1,127 @@
+{% extends 'base.html' %}
+{% block title %}MP3 to Sheet — Melody Sheet{% endblock %}
+
+{% block content %}
+<div class="tool-header">
+    <h1>📄 MP3 to Sheet Music Converter</h1>
+    <p class="subtitle">Convert audio to sheet music online. Turn MP3s, humming, and solo recordings into printable notation, MIDI, or MusicXML without upload.</p>
+    <div class="badges">
+        <span class="badge">100% Private</span>
+        <span class="badge">No Signup</span>
+        <span class="badge">MP3 · WAV · M4A</span>
+        <span class="badge">PDF · MIDI · MusicXML</span>
+    </div>
+</div>
+
+<div class="two-col-layout">
+    <div class="col-left">
+        <div class="upload-zone" id="dropZone">
+            <p>📎 Drag & drop an audio file here</p>
+            <small>Supports .mp3, .wav, .m4a, .flac, .ogg — max 100MB</small>
+            <input type="file" id="fileInput" accept=".mp3,.wav,.flac,.ogg,.m4a,.aac" hidden>
+        </div>
+        <div class="upload-actions">
+            <button class="btn-secondary" id="browseBtn">📁 Browse files</button>
+            <button class="btn-secondary" id="demoBtn">🎬 Load interactive demo</button>
+        </div>
+
+        {% include '_analysis_panel.html' %}
+
+        <button class="btn-primary big" id="analyzeBtn" disabled>📄 Convert to Sheet Music</button>
+    </div>
+
+    <div class="col-right">
+        <div id="status" class="status hidden"></div>
+        <div id="results" class="hidden">
+            <div class="results-grid">
+                <div class="result-card"><span class="label">Notes</span><span class="value" id="resNotes">—</span></div>
+                <div class="result-card"><span class="label">Tempo</span><span class="value" id="resTempo">—</span></div>
+                <div class="result-card"><span class="label">Key</span><span class="value" id="resKey">—</span></div>
+                <div class="result-card"><span class="label">Measures</span><span class="value" id="resMeasures">—</span></div>
+            </div>
+
+            <h3 class="section-title">Sheet Music Preview</h3>
+            <div id="scoreContainer" class="score-preview hidden"></div>
+            <div id="staffDisplay" class="staff-display"></div>
+
+            <h3 class="section-title">Export</h3>
+            <div class="action-row">
+                <button class="btn-secondary" id="playBtn">▶ Play</button>
+                <a id="midiLink" class="btn-secondary" style="display:none;">⬇ MIDI</a>
+                <a id="xmlLink" class="btn-secondary" style="display:none;">⬇ MusicXML</a>
+                <a id="pdfLink" class="btn-primary" style="display:none;">⬇ PDF</a>
+                <button class="btn-secondary" id="printBtn">🖨 Print</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='osmd.min.js') }}"></script>
+<script src="{{ url_for('static', filename='score_preview.js') }}"></script>
+<script>
+let selectedFile=null;
+ScorePreview.wirePrint();
+const dz=document.getElementById('dropZone'),fi=document.getElementById('fileInput');
+dz.addEventListener('click',()=>fi.click());
+document.getElementById('browseBtn').onclick=()=>fi.click();
+document.getElementById('demoBtn').onclick=()=>{fetch('/api/demo-audio').then(r=>r.blob()).then(b=>{selectedFile=new File([b],'demo.wav',{type:'audio/wav'});document.getElementById('analyzeBtn').disabled=false;});};
+dz.addEventListener('dragover',e=>{e.preventDefault();dz.classList.add('drag');});
+dz.addEventListener('dragleave',()=>dz.classList.remove('drag'));
+dz.addEventListener('drop',e=>{e.preventDefault();dz.classList.remove('drag');if(e.dataTransfer.files.length)loadFile(e.dataTransfer.files[0]);});
+fi.addEventListener('change',()=>{if(fi.files.length)loadFile(fi.files[0]);});
+function loadFile(f){selectedFile=f;document.getElementById('analyzeBtn').disabled=false;document.getElementById('status').textContent=`✅ ${f.name} loaded`;document.getElementById('status').className='status success';document.getElementById('status').classList.remove('hidden');}
+
+document.getElementById('analyzeBtn').onclick=async()=>{
+    if(!selectedFile)return;
+    const st=document.getElementById('status');const prefs=getAnalysisPrefs();
+    st.textContent='⏳ Transcribing to sheet music...';st.className='status';st.classList.remove('hidden');
+    const fd=new FormData();fd.append('audio',selectedFile);
+    fd.append('instrument',prefs.instrument);fd.append('noise',prefs.noise);
+    fd.append('tempo',prefs.tempo);fd.append('sensitivity',prefs.sensitivity);
+    if(prefs.customPitch){fd.append('lowest',prefs.lowestNote);fd.append('highest',prefs.highestNote);}
+    try{
+        const r=await fetch('/api/transcribe',{method:'POST',body:fd});const d=await r.json();
+        if(d.error)throw new Error(d.error);
+        // Get MusicXML
+        const xmlR=await fetch('/api/sheet-music',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({notes:d.notes,tempo:d.tempo,key:d.key})});
+        const xmlD=await xmlR.json();
+        showResult(d,xmlD);
+    }catch(e){st.textContent='❌ '+e.message;st.className='status error';}
+};
+
+// Render a completed conversion into the results panel. Shared by the live
+// convert click and the sessionStorage restore on page load, so a generated
+// sheet survives navigating between the suite's pages.
+function showResult(d,xmlD){
+    const st=document.getElementById('status');
+    st.textContent=`✅ ${d.num_notes} notes → sheet music`;st.className='status success';
+    document.getElementById('results').classList.remove('hidden');
+    document.getElementById('resNotes').textContent=d.num_notes;
+    document.getElementById('resTempo').textContent=d.tempo+' BPM';
+    document.getElementById('resKey').textContent=d.key||'—';
+    document.getElementById('resMeasures').textContent=Math.ceil(d.notes.reduce((s,n)=>s+n.duration,0)*d.tempo/240);
+    const lines=[];for(let i=0;i<d.notes.length;i+=8){lines.push(d.notes.slice(i,i+8).map(n=>n.pitch_name).join(' │ '));}
+    document.getElementById('staffDisplay').innerHTML=lines.map(l=>`<div class="staff-line">│ ${l} │</div>`).join('');
+    if(xmlD&&xmlD.xml_url)ScorePreview.render(xmlD.xml_url);
+    if(d.midi_url){document.getElementById('midiLink').href=d.midi_url;document.getElementById('midiLink').style.display='inline-block';}
+    if(xmlD&&xmlD.xml_url){document.getElementById('xmlLink').href=xmlD.xml_url;document.getElementById('xmlLink').style.display='inline-block';
+        document.getElementById('pdfLink').href=xmlD.xml_url;document.getElementById('pdfLink').style.display='inline-block';document.getElementById('pdfLink').textContent='⬇ MusicXML (opens in MuseScore)';}
+    document.getElementById('playBtn').onclick=()=>{const ctx=new AudioContext(),s=ctx.currentTime+0.1;
+        d.notes.forEach(n=>{const o=ctx.createOscillator(),g=ctx.createGain();
+            o.frequency.value=440*Math.pow(2,(n.pitch-69)/12);o.type='sine';
+            const t=s+n.start,dd=n.duration;g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(0.3,t+0.02);g.gain.linearRampToValueAtTime(0,t+dd*0.95);
+            o.connect(g);g.connect(ctx.destination);o.start(t);o.stop(t+dd);});};
+    // Persist so the result survives navigating between pages.
+    try{sessionStorage.setItem('mp3sheetLastResult',JSON.stringify({d,xml_url:xmlD&&xmlD.xml_url}));}catch(e){}
+}
+
+// Restore the last conversion result on page load.
+try{
+    const saved=sessionStorage.getItem('mp3sheetLastResult');
+    if(saved){const {d,xml_url}=JSON.parse(saved);if(d&&d.notes&&d.notes.length)showResult(d,{xml_url});}
+}catch(e){}
+
+</script>
+{% endblock %}

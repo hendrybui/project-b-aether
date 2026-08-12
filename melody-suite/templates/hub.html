@@ -1,0 +1,98 @@
+{% extends 'base.html' %}
+{% block title %}Melody Sheet Suite — 8 Music Tools{% endblock %}
+
+{% block content %}
+<div class="hub-hero">
+    <h1>Melody Sheet Suite</h1>
+    <p class="hub-tagline">10 browser-based music tools for analysis, composition, and editing. Built with librosa, Magenta-style engines, and Coconet-style harmony.</p>
+</div>
+
+<div class="workflow-shortcuts">
+    <a href="{{ url_for('mp3_to_sheet') }}" class="workflow-card">
+        <span class="wf-label">Most searched workflow</span>
+        <strong>MP3 to Sheet Music</strong>
+        <span class="wf-desc">Convert audio recordings, voice memos, or humming into printable notation</span>
+        <span class="wf-arrow">Open →</span>
+    </a>
+    <a href="{{ url_for('bpm_key') }}" class="workflow-card">
+        <span class="wf-label">Tempo and key workflow</span>
+        <strong>BPM & Key Finder</strong>
+        <span class="wf-desc">Find song tempo and musical key for remix prep, practice loops, or DJ sets</span>
+        <span class="wf-arrow">Open →</span>
+    </a>
+    <a href="{{ url_for('mp3_to_midi') }}" class="workflow-card">
+        <span class="wf-label">Editing workflow</span>
+        <strong>MP3 to MIDI</strong>
+        <span class="wf-desc">Get editable notes for a DAW, piano roll cleanup, or MusicXML work</span>
+        <span class="wf-arrow">Open →</span>
+    </a>
+</div>
+
+<div class="tool-grid">
+    <a href="{{ url_for('analyzer') }}" class="tool-card">
+        <span class="tc-icon">🎼</span>
+        <span class="tc-name">Analyzer</span>
+        <span class="tc-desc">Upload a clip, tune the analyzer, and turn MP3s and WAV files into readable notes</span>
+        <span class="tc-badge">Hub</span>
+    </a>
+    <a href="{{ url_for('bpm_key') }}" class="tool-card">
+        <span class="tc-icon">🥁</span>
+        <span class="tc-name">BPM & Key Finder</span>
+        <span class="tc-desc">Detect tempo, key, waveforms, and Camelot wheel insights for DJ mixing</span>
+        <span class="tc-badge working">✓ Working</span>
+    </a>
+    <a href="{{ url_for('melody_gen') }}" class="tool-card">
+        <span class="tc-icon">🎶</span>
+        <span class="tc-name">AI Melody Generator</span>
+        <span class="tc-desc">Turn mood prompts into MIDI-friendly melodies and keep a shareable history</span>
+        <span class="tc-badge working">✓ Working</span>
+    </a>
+    <a href="{{ url_for('mp3_to_midi') }}" class="tool-card">
+        <span class="tc-icon">🎹</span>
+        <span class="tc-name">MP3 to MIDI</span>
+        <span class="tc-desc">Convert voice, humming, and instruments into editable MIDI</span>
+    </a>
+    <a href="{{ url_for('mp3_to_sheet') }}" class="tool-card">
+        <span class="tc-icon">📄</span>
+        <span class="tc-name">MP3 to Sheet</span>
+        <span class="tc-desc">Turn recordings or humming into printable sheet music with PDF, MIDI exports</span>
+    </a>
+    <a href="{{ url_for('harmony') }}" class="tool-card">
+        <span class="tc-icon">🎭</span>
+        <span class="tc-name">Multi-part Harmony</span>
+        <span class="tc-desc">Stack 2–4 voices, preview harmony strategies, export choir-ready arrangements</span>
+        <span class="tc-badge working">✓ Working</span>
+    </a>
+    <a href="{{ url_for('mobile_recording') }}" class="tool-card">
+        <span class="tc-icon">📱</span>
+        <span class="tc-name">Mobile Recording</span>
+        <span class="tc-desc">PWA recording, latency tuning, and mobile clip capture</span>
+    </a>
+    <a href="{{ url_for('interactive_editor') }}" class="tool-card">
+        <span class="tc-icon">✏️</span>
+        <span class="tc-name">Interactive Editor</span>
+        <span class="tc-desc">Drag notes, transpose phrases, and hear instant playback as you edit</span>
+    </a>
+    <a href="{{ url_for('melody_studio') }}" class="tool-card">
+        <span class="tc-icon">🎛️</span>
+        <span class="tc-name">Melody Studio</span>
+        <span class="tc-desc">Generate melody ideas in-browser — play, pick a favorite, export MIDI, or send straight to Aether</span>
+        <span class="tc-badge working">✓ Working</span>
+    </a>
+    <a href="{{ url_for('audio_sheet_studio') }}" class="tool-card">
+        <span class="tc-icon">🎚️</span>
+        <span class="tc-name">Audio to Sheet</span>
+        <span class="tc-desc">Transcribe an audio clip and render the notes as editable sheet music with playback</span>
+        <span class="tc-badge working">✓ Working</span>
+    </a>
+</div>
+
+<div class="recording-tips">
+    <h3>💡 Quick recording tips</h3>
+    <div class="tips-grid">
+        <div class="tip">🎧 Solo voices or single instruments work best — layers and chords confuse pitch detection</div>
+        <div class="tip">🚪 Record in a quiet, dry room to sharpen note detection</div>
+        <div class="tip">⏱️ Aim for 20s–2min clips for faster, more accurate transcription</div>
+    </div>
+</div>
+{% endblock %}

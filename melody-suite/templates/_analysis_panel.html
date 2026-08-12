@@ -1,0 +1,130 @@
+{# Shared analysis preferences panel — used by Analyzer, MP3-to-MIDI, MP3-to-Sheet #}
+<div class="analysis-panel" id="analysisPanel">
+    <div class="panel-header">
+        <h3>Analysis preferences</h3>
+        <button class="btn-mini" onclick="resetAnalysis()">Reset</button>
+    </div>
+
+    <div class="pref-group">
+        <label class="pref-label">Instrument profile</label>
+        <small class="pref-hint">Optimizes pitch ranges for the source instrument.</small>
+        <div class="segmented" id="instrumentProfile">
+            <label><input type="radio" name="instrument" value="balanced" checked> <span><strong>Balanced</strong><br><small>Great starting point for keyboards, plucked strings, or clean vocals.</small></span></label>
+            <label><input type="radio" name="instrument" value="piano"> <span><strong>Concert piano</strong><br><small>Focus on mid-to-high registers with gentle decay handling.</small></span></label>
+            <label><input type="radio" name="instrument" value="guitar"> <span><strong>Guitar or plucked</strong><br><small>Optimized for plucked strings and bright transients.</small></span></label>
+            <label><input type="radio" name="instrument" value="vocal"> <span><strong>Lead vocal</strong><br><small>Cuts low-frequency rumble and keeps focus on the vocal range.</small></span></label>
+        </div>
+    </div>
+
+    <div class="pref-group">
+        <label class="pref-label">Noise handling</label>
+        <small class="pref-hint">Choose how aggressively we filter background noise.</small>
+        <div class="segmented-inline" id="noiseHandling">
+            <label><input type="radio" name="noise" value="off"> Off</label>
+            <label><input type="radio" name="noise" value="smart" checked> Smart</label>
+            <label><input type="radio" name="noise" value="studio"> Studio clean</label>
+        </div>
+        <small class="pref-hint" id="noiseHint">Filter common hums and hiss without losing nuance.</small>
+    </div>
+
+    <div class="pref-group">
+        <label class="pref-toggle">
+            <input type="checkbox" id="tempoEstimation" checked>
+            <span><strong>Tempo estimation</strong><br><small>Estimate beats-per-minute from detected note spacing.</small></span>
+        </label>
+    </div>
+
+    <div class="pref-group advanced-section">
+        <label class="pref-label">Advanced detection</label>
+        <small class="pref-hint" id="advSummary">Default range with Relaxed sensitivity</small>
+        <button class="btn-mini" onclick="toggleAdvanced()">Show advanced settings</button>
+
+        <div class="advanced-body hidden" id="advancedBody">
+            <div class="pref-group">
+                <label class="pref-toggle">
+                    <input type="checkbox" id="customPitchEnable" onchange="toggleCustomPitch()">
+                    <span><strong>Custom pitch range</strong><br><small>Choose note names that match the lowest and highest tones you expect.</small></span>
+                </label>
+            </div>
+
+            <div class="pitch-range hidden" id="pitchRangeControls">
+                <div class="pref-group">
+                    <label class="pref-label">Lowest note</label>
+                    <select id="lowestNote" class="note-select">
+                        {% for note in note_options %}
+                        <option value="{{ note.midi }}">{{ note.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="pref-group">
+                    <label class="pref-label">Highest note</label>
+                    <select id="highestNote" class="note-select">
+                        {% for note in note_options %}
+                        <option value="{{ note.midi }}">{{ note.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+
+            <div class="pref-group">
+                <label class="pref-label">Detection sensitivity</label>
+                <small class="pref-hint">Relaxed keeps more faint notes; strict filters noise aggressively.</small>
+                <div class="segmented-inline" id="sensitivity">
+                    <label><input type="radio" name="sensitivity" value="relaxed" checked> Relaxed</label>
+                    <label><input type="radio" name="sensitivity" value="balanced"> Balanced</label>
+                    <label><input type="radio" name="sensitivity" value="strict"> Strict</label>
+                </div>
+            </div>
+            <button class="btn-mini" onclick="resetAdvanced()">Reset</button>
+        </div>
+    </div>
+</div>
+
+<script>
+function toggleAdvanced() {
+    const body = document.getElementById('advancedBody');
+    const btn = event.target;
+    body.classList.toggle('hidden');
+    btn.textContent = body.classList.contains('hidden') ? 'Show advanced settings' : 'Hide advanced settings';
+}
+function toggleCustomPitch() {
+    document.getElementById('pitchRangeControls').classList.toggle('hidden');
+}
+function resetAnalysis() {
+    document.querySelector('input[name="instrument"][value="balanced"]').checked = true;
+    document.querySelector('input[name="noise"][value="smart"]').checked = true;
+    document.querySelector('input[name="sensitivity"][value="relaxed"]').checked = true;
+    document.getElementById('tempoEstimation').checked = true;
+    document.getElementById('customPitchEnable').checked = false;
+    document.getElementById('pitchRangeControls').classList.add('hidden');
+}
+function resetAdvanced() {
+    document.querySelector('input[name="sensitivity"][value="relaxed"]').checked = true;
+    document.getElementById('customPitchEnable').checked = false;
+    document.getElementById('pitchRangeControls').classList.add('hidden');
+}
+
+// Noise handling hint update
+document.querySelectorAll('input[name="noise"]').forEach(r => {
+    r.addEventListener('change', e => {
+        const hints = {
+            'off': 'No noise filtering applied.',
+            'smart': 'Filter common hums and hiss without losing nuance.',
+            'studio': 'Aggressive filtering for clean studio recordings.'
+        };
+        document.getElementById('noiseHint').textContent = hints[e.target.value];
+    });
+});
+
+function getAnalysisPrefs() {
+    return {
+        instrument: document.querySelector('input[name="instrument"]:checked')?.value || 'balanced',
+        noise: document.querySelector('input[name="noise"]:checked')?.value || 'smart',
+        tempo: document.getElementById('tempoEstimation').checked,
+        sensitivity: document.querySelector('input[name="sensitivity"]:checked')?.value || 'relaxed',
+        customPitch: document.getElementById('customPitchEnable').checked,
+        lowestNote: document.getElementById('lowestNote')?.value || 24,
+        highestNote: document.getElementById('highestNote')?.value || 76,
+    };
+}
+</script>

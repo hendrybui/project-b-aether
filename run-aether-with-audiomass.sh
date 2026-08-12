@@ -29,12 +29,14 @@ AETHER_DIR="$PROJECT_ROOT"
 AUDIOMASS_DIR="$PROJECT_ROOT/audiomass"
 DJ_TOOLKIT_DIR="$PROJECT_ROOT/dj_toolkit"
 MUSIC_TOOLS_DIR="$PROJECT_ROOT/music-tools"
+MELODY_SUITE_DIR="$PROJECT_ROOT/melody-suite"
 CADDY_CONFIG="/mnt/Pandora/caddy/Caddyfile"
 
 AETHER_PORT=5173
 AUDIOMASS_PORT=5055
 DJ_TOOLKIT_PORT=5001
 MUSIC_TOOLS_PORT=8091
+MELODY_SUITE_PORT=5000
 
 # Logs and runtime state under /tmp (shared "Pandora" namespace, survives script restarts)
 LOG_DIR="/tmp"
@@ -42,11 +44,13 @@ AETHER_LOG="$LOG_DIR/aether-dev.log"
 AUDIOMASS_LOG="$LOG_DIR/audiomass.log"
 DJ_TOOLKIT_LOG="$LOG_DIR/dj-toolkit.log"
 MUSIC_TOOLS_LOG="$LOG_DIR/music-tools.log"
+MELODY_SUITE_LOG="$LOG_DIR/melody-suite.log"
 CADDY_LOG="$LOG_DIR/pandora-caddy.log"
 AETHER_PIDFILE="$LOG_DIR/aether-dev.pid"
 AUDIOMASS_PIDFILE="$LOG_DIR/audiomass.pid"
 DJ_TOOLKIT_PIDFILE="$LOG_DIR/dj-toolkit.pid"
 MUSIC_TOOLS_PIDFILE="$LOG_DIR/music-tools.pid"
+MELODY_SUITE_PIDFILE="$LOG_DIR/melody-suite.pid"
 CADDY_PIDFILE="$LOG_DIR/pandora-caddy.pid"
 CADDY_HASHFILE="$LOG_DIR/pandora-caddy-config.hash"
 
@@ -289,6 +293,38 @@ start_music_tools() {
   log "   Direct: http://localhost:$MUSIC_TOOLS_PORT/melody-generator.html  (and /audio-to-sheet.html)"
 }
 
+start_melody_suite() {
+  log "→ Starting Melody Suite (interactive sheet editor / BPM-key / SATB / MP3→MIDI) on :$MELODY_SUITE_PORT ..."
+
+  if [ ! -d "$MELODY_SUITE_DIR" ]; then
+    log "ERROR: melody-suite/ not found at $MELODY_SUITE_DIR — skipping."
+    return 1
+  fi
+
+  local venv_py="$MELODY_SUITE_DIR/.venv/bin/python"
+  if [ ! -x "$venv_py" ]; then
+    log "   melody-suite venv missing — creating it (one-time bootstrap, ~1-2 min)..."
+    python3 -m venv "$MELODY_SUITE_DIR/.venv"
+    "$MELODY_SUITE_DIR/.venv/bin/pip" install --quiet -r "$MELODY_SUITE_DIR/requirements.txt"
+  fi
+
+  # Clean prior instance
+  if [ -f "$MELODY_SUITE_PIDFILE" ]; then
+    kill "$(cat "$MELODY_SUITE_PIDFILE" 2>/dev/null)" 2>/dev/null || true
+    rm -f "$MELODY_SUITE_PIDFILE"
+  fi
+  pkill -f "melody-suite/.venv/bin/python app.py" 2>/dev/null || true
+
+  cd "$MELODY_SUITE_DIR"
+  nohup env MELODY_SUITE_PORT="$MELODY_SUITE_PORT" "$venv_py" app.py > "$MELODY_SUITE_LOG" 2>&1 &
+
+  local pid=$!
+  echo "$pid" > "$MELODY_SUITE_PIDFILE"
+
+  log "   Melody Suite PID: $pid (logs: $MELODY_SUITE_LOG)"
+  log "   Direct: http://localhost:$MELODY_SUITE_PORT  (editor: /tools/melody-sheet/interactive-sheet-music-editor-playback)"
+}
+
 stop_aether() {
   log "Stopping Aether..."
   if [ -f "$AETHER_PIDFILE" ]; then
@@ -354,13 +390,30 @@ stop_music_tools() {
   log "  Music Tools stopped."
 }
 
+stop_melody_suite() {
+  log "Stopping Melody Suite..."
+  if [ -f "$MELODY_SUITE_PIDFILE" ]; then
+    local pid
+    pid=$(cat "$MELODY_SUITE_PIDFILE" 2>/dev/null || true)
+    if [ -n "$pid" ]; then
+      kill "$pid" 2>/dev/null || true
+      sleep 0.3
+      kill -9 "$pid" 2>/dev/null || true
+    fi
+    rm -f "$MELODY_SUITE_PIDFILE"
+  fi
+  pkill -f "melody-suite/.venv/bin/python app.py" 2>/dev/null || true
+  log "  Melody Suite stopped."
+}
+
 stop_all() {
   stop_aether
   stop_audiomass
   stop_dj_toolkit
   stop_music_tools
+  stop_melody_suite
   stop_caddy
-  log "All (Aether + AudioMass + DJ Toolkit + Music Tools + Caddy) stopped."
+  log "All (Aether + AudioMass + DJ Toolkit + Music Tools + Melody Suite + Caddy) stopped."
 }
 
 status() {
@@ -469,6 +522,24 @@ status() {
   echo "  logfile : $MUSIC_TOOLS_LOG"
   echo ""
 
+  # --- Melody Suite ---
+  echo "Melody Suite (flask :$MELODY_SUITE_PORT — interactive sheet editor / BPM-key / SATB / MP3→MIDI):"
+  local mp2pid=""
+  [ -f "$MELODY_SUITE_PIDFILE" ] && mp2pid=$(cat "$MELODY_SUITE_PIDFILE" 2>/dev/null || true)
+  if [ -n "$mp2pid" ] && kill -0 "$mp2pid" 2>/dev/null; then
+    echo "  RUNNING   pid=$mp2pid (pidfile)"
+  elif pgrep -f "melody-suite/.venv/bin/python app.py" >/dev/null 2>&1; then
+    echo "  RUNNING   (pgrep match)"
+    pgrep -af "melody-suite/.venv/bin/python app.py" 2>/dev/null | head -1 | sed 's/^/    /'
+  else
+    echo "  NOT RUNNING"
+  fi
+  if ss -tlnp 2>/dev/null | grep -q ":$MELODY_SUITE_PORT[ ]"; then
+    echo "  :$MELODY_SUITE_PORT listening: YES"
+  fi
+  echo "  logfile : $MELODY_SUITE_LOG"
+  echo ""
+
   # --- Proxy tests ---
   echo "Quick proxy tests (http://localhost via Caddy, 2s timeout):"
   for path in / /aether /mass /audiomass; do
@@ -490,14 +561,16 @@ case "${1:-start}" in
     start_audiomass
     start_dj_toolkit
     start_music_tools
+    start_melody_suite
     echo ""
-    log "Aether + AudioMass + DJ Toolkit + Music Tools + Caddy ready — the full creative stack."
+    log "Aether + AudioMass + DJ Toolkit + Music Tools + Melody Suite + Caddy ready — the full creative stack."
     log "Recommended unified access (Caddy on :80):"
     log "  http://localhost/aether   → Aether (AI music generation + sequencer, hot reload)"
     log "  http://localhost/mass     → AudioMass (multitrack waveform editor)"
     log "Direct ports (no proxy needed):"
     log "  http://localhost:5001     → DJ Toolkit (stems / BPM-key / vocal remover / MP3→MIDI)"
     log "  http://localhost:8091     → Music Tools (melody generator / audio→sheet)"
+    log "  http://localhost:5000     → Melody Suite (interactive sheet editor / SATB harmony / MP3→MIDI)"
     log ""
     log "Handoff (no gaps): In Aether use BOUNCE buttons for stems/full WAV (named aether-*-to-audiomass.wav)."
     log "  Drop to $PROJECT_ROOT/exports/ or audiomass/jobs/_incoming/ for instant import."
@@ -521,6 +594,7 @@ case "${1:-start}" in
     start_audiomass
     start_dj_toolkit
     start_music_tools
+    start_melody_suite
     log "Restart complete."
     ;;
   status)
@@ -544,7 +618,7 @@ case "${1:-start}" in
   *)
     echo "Usage: $0 {start|stop|restart|status|build-aether|caddy-restart}"
     echo ""
-    echo "  start          Start Caddy (smart) + Aether dev + AudioMass + DJ Toolkit + Music Tools"
+    echo "  start          Start Caddy (smart) + Aether dev + AudioMass + DJ Toolkit + Music Tools + Melody Suite"
     echo "  stop           Stop everything + our Caddy instance"
     echo "  restart        stop + start"
     echo "  status         Show pids, logs tails, listeners, quick curl tests against proxy"

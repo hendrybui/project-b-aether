@@ -107,9 +107,31 @@ before(async () => {
   await spawnServer()
 })
 
-after(() => {
-  if (serverProc) serverProc.kill()
-  if (jobsDir) fs.rmSync(jobsDir, { recursive: true, force: true })
+after(async () => {
+  // SIGTERM triggers the server's graceful shutdown (cancel in-flight job,
+  // stop the warm pool, then exit). The signal handler runs on a thread, so
+  // we must wait for the process to actually exit before touching the jobs
+  // dir — rmSync while the server is still writing (status updates, pool
+  // markers) races it and leaves ENOTEMPTY trees behind.
+  if (serverProc && serverProc.exitCode === null) {
+    serverProc.kill()
+    await Promise.race([
+      new Promise((r) => serverProc.once('exit', r)),
+      new Promise((r) => setTimeout(r, 15000)), // graceful shutdown is bounded
+    ])
+  }
+  if (jobsDir) {
+    // The pool supervisor is a separate process; if one is up it may briefly
+    // hold the _pool dir after the server exits. Retry before giving up.
+    for (let i = 0; i < 5; i++) {
+      try {
+        fs.rmSync(jobsDir, { recursive: true, force: true })
+        break
+      } catch {
+        await new Promise((r) => setTimeout(r, 500))
+      }
+    }
+  }
 })
 
 test('AudioMass bridge: upload -> separate -> cancel lands the job in cancelled state', async () => {

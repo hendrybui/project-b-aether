@@ -1,0 +1,88 @@
+{% extends 'base.html' %}
+{% block title %}MP3 to MIDI — Melody Sheet{% endblock %}
+
+{% block content %}
+<div class="tool-header">
+    <h1>🎹 AI MP3 to MIDI Converter</h1>
+    <p class="subtitle">Convert MP3, WAV, and humming to editable MIDI with browser-based AI. Private, fast, and ready for Logic Pro, FL Studio, and sheet music workflows.</p>
+    <div class="badges">
+        <span class="badge">100% Client-side</span>
+        <span class="badge">Voice & Humming</span>
+        <span class="badge">MP3 · WAV · OGG</span>
+        <span class="badge">Instant MIDI Export</span>
+    </div>
+</div>
+
+<div class="two-col-layout">
+    <div class="col-left">
+        <div class="upload-zone" id="dropZone">
+            <p>📎 Drag & drop an audio file here</p>
+            <small>Supports .mp3, .wav, .m4a, .flac, .ogg — max 100MB</small>
+            <input type="file" id="fileInput" accept=".mp3,.wav,.flac,.ogg,.m4a,.aac" hidden>
+        </div>
+        <div class="upload-actions">
+            <button class="btn-secondary" id="browseBtn">📁 Browse files</button>
+            <button class="btn-secondary" id="demoBtn">🎬 Try examples</button>
+        </div>
+
+        {% include '_analysis_panel.html' %}
+
+        <button class="btn-primary big" id="analyzeBtn" disabled>🎹 Convert to MIDI</button>
+    </div>
+
+    <div class="col-right">
+        <div id="status" class="status hidden"></div>
+        <div id="results" class="hidden">
+            <div class="results-grid">
+                <div class="result-card big"><span class="label">MIDI Notes</span><span class="value" id="resNotes">—</span></div>
+                <div class="result-card big"><span class="label">Tempo</span><span class="value" id="resTempo">—</span></div>
+            </div>
+            <h3 class="section-title">Extracted Notes</h3>
+            <div id="noteStrip" class="note-strip-display"></div>
+            <div class="action-row">
+                <button class="btn-secondary" id="playBtn">▶ Play</button>
+                <a id="midiLink" class="btn-primary" style="display:none;">⬇ Download MIDI File</a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let selectedFile=null;
+const dz=document.getElementById('dropZone'),fi=document.getElementById('fileInput');
+dz.addEventListener('click',()=>fi.click());
+document.getElementById('browseBtn').onclick=()=>fi.click();
+document.getElementById('demoBtn').onclick=()=>{fetch('/api/demo-audio').then(r=>r.blob()).then(b=>{selectedFile=new File([b],'demo.wav',{type:'audio/wav'});document.getElementById('analyzeBtn').disabled=false;});};
+dz.addEventListener('dragover',e=>{e.preventDefault();dz.classList.add('drag');});
+dz.addEventListener('dragleave',()=>dz.classList.remove('drag'));
+dz.addEventListener('drop',e=>{e.preventDefault();dz.classList.remove('drag');if(e.dataTransfer.files.length)loadFile(e.dataTransfer.files[0]);});
+fi.addEventListener('change',()=>{if(fi.files.length)loadFile(fi.files[0]);});
+function loadFile(f){selectedFile=f;document.getElementById('analyzeBtn').disabled=false;document.getElementById('status').textContent=`✅ ${f.name} loaded`;document.getElementById('status').className='status success';document.getElementById('status').classList.remove('hidden');}
+
+document.getElementById('analyzeBtn').onclick=async()=>{
+    if(!selectedFile)return;
+    const st=document.getElementById('status');const prefs=getAnalysisPrefs();
+    st.textContent='⏳ Converting to MIDI...';st.className='status';st.classList.remove('hidden');
+    const fd=new FormData();fd.append('audio',selectedFile);
+    fd.append('instrument',prefs.instrument);fd.append('noise',prefs.noise);
+    fd.append('tempo',prefs.tempo);fd.append('sensitivity',prefs.sensitivity);
+    if(prefs.customPitch){fd.append('lowest',prefs.lowestNote);fd.append('highest',prefs.highestNote);}
+    try{const r=await fetch('/api/transcribe',{method:'POST',body:fd});const d=await r.json();
+        if(d.error)throw new Error(d.error);
+        st.textContent=`✅ ${d.num_notes} MIDI notes extracted`;st.className='status success';
+        document.getElementById('results').classList.remove('hidden');
+        document.getElementById('resNotes').textContent=d.num_notes;
+        document.getElementById('resTempo').textContent=d.tempo+' BPM';
+        document.getElementById('noteStrip').innerHTML=d.notes.map(n=>`<span class="note-pill">${n.pitch_name}</span>`).join('');
+        if(d.midi_url){document.getElementById('midiLink').href=d.midi_url;document.getElementById('midiLink').style.display='inline-block';}
+        document.getElementById('playBtn').onclick=()=>{const ctx=new AudioContext(),s=ctx.currentTime+0.1;
+            d.notes.forEach(n=>{const o=ctx.createOscillator(),g=ctx.createGain();
+                o.frequency.value=440*Math.pow(2,(n.pitch-69)/12);o.type='sine';
+                const t=s+n.start,dd=n.duration;g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(0.3,t+0.02);g.gain.linearRampToValueAtTime(0,t+dd*0.95);
+                o.connect(g);g.connect(ctx.destination);o.start(t);o.stop(t+dd);});};
+    }catch(e){st.textContent='❌ '+e.message;st.className='status error';}
+};
+</script>
+{% endblock %}

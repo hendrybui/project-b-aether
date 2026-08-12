@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Melody Sheet Suite{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <header class="topbar">
+        <a href="{{ url_for('hub') }}" class="brand">🎵 Melody Sheet</a>
+        <span class="suite-label">Switch between 10 music tools</span>
+    </header>
+
+    <!-- The 8-tool switcher — present on every page, matching GadegetKit -->
+    <nav class="tool-switcher" id="toolSwitcher">
+        <div class="switcher-scroll">
+            <a href="{{ url_for('analyzer') }}"
+               class="tool-pill {% if active_tool == 'analyzer' %}active{% endif %}">
+                <span class="tp-icon">🎼</span>
+                <span class="tp-name">Analyzer</span>
+                <span class="tp-desc">Audio to sheet music converter</span>
+            </a>
+            <a href="{{ url_for('bpm_key') }}"
+               class="tool-pill {% if active_tool == 'bpm_key' %}active{% endif %}">
+                <span class="tp-icon">🥁</span>
+                <span class="tp-name">BPM & Key Finder</span>
+                <span class="tp-desc">Tempo, key, Camelot wheel</span>
+            </a>
+            <a href="{{ url_for('melody_gen') }}"
+               class="tool-pill {% if active_tool == 'melody_gen' %}active{% endif %}">
+                <span class="tp-icon">🎶</span>
+                <span class="tp-name">AI Melody Generator</span>
+                <span class="tp-desc">Mood prompts to MIDI melodies</span>
+            </a>
+            <a href="{{ url_for('mp3_to_midi') }}"
+               class="tool-pill {% if active_tool == 'mp3_to_midi' %}active{% endif %}">
+                <span class="tp-icon">🎹</span>
+                <span class="tp-name">MP3 to MIDI</span>
+                <span class="tp-desc">Audio to editable MIDI notes</span>
+            </a>
+            <a href="{{ url_for('mp3_to_sheet') }}"
+               class="tool-pill {% if active_tool == 'mp3_to_sheet' %}active{% endif %}">
+                <span class="tp-icon">📄</span>
+                <span class="tp-name">MP3 to Sheet</span>
+                <span class="tp-desc">Audio to printable sheet music</span>
+            </a>
+            <a href="{{ url_for('harmony') }}"
+               class="tool-pill {% if active_tool == 'harmony' %}active{% endif %}">
+                <span class="tp-icon">🎭</span>
+                <span class="tp-name">Multi-part Harmony</span>
+                <span class="tp-desc">Lead melody to SATB arrangement</span>
+            </a>
+            <a href="{{ url_for('mobile_recording') }}"
+               class="tool-pill {% if active_tool == 'mobile_recording' %}active{% endif %}">
+                <span class="tp-icon">📱</span>
+                <span class="tp-name">Mobile Recording</span>
+                <span class="tp-desc">PWA recording and capture</span>
+            </a>
+            <a href="{{ url_for('interactive_editor') }}"
+               class="tool-pill {% if active_tool == 'interactive_editor' %}active{% endif %}">
+                <span class="tp-icon">✏️</span>
+                <span class="tp-name">Interactive Editor</span>
+                <span class="tp-desc">Drag notes, transpose, playback</span>
+            </a>
+            <a href="{{ url_for('melody_studio') }}"
+               class="tool-pill {% if active_tool == 'melody_studio' %}active{% endif %}">
+                <span class="tp-icon">🎛️</span>
+                <span class="tp-name">Melody Studio</span>
+                <span class="tp-desc">Browser melody generator + sheet</span>
+            </a>
+            <a href="{{ url_for('audio_sheet_studio') }}"
+               class="tool-pill {% if active_tool == 'audio_sheet_studio' %}active{% endif %}">
+                <span class="tp-icon">🎚️</span>
+                <span class="tp-name">Audio to Sheet</span>
+                <span class="tp-desc">Transcribe audio to sheet music</span>
+            </a>
+        </div>
+    </nav>
+
+    <main class="content">
+        {% block content %}{% endblock %}
+    </main>
+
+    <script src="{{ url_for('static', filename='player.js') }}"></script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

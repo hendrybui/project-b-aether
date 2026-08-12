@@ -1,49 +1,56 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>AI Melody Generator — Music Tools</title>
-  <style>
-    :root {
-      --bg: #0f1117; --panel: #1a1d27; --panel2: #232734; --border: #2d3142;
-      --text: #e4e6eb; --muted: #8b90a0; --accent: #e94560; --accent2: #0f3460;
-      --green: #4ade80; --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    }
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: var(--font); background: var(--bg); color: var(--text);
-      min-height: 100vh; padding: 24px; line-height: 1.5;
-    }
-    .wrap { max-width: 1100px; margin: 0 auto; }
-    header { text-align: center; margin-bottom: 28px; }
-    header h1 { font-size: 28px; font-weight: 600; }
-    header h1 span { color: var(--accent); }
-    header p { color: var(--muted); font-size: 14px; margin-top: 6px; }
+{% extends 'base.html' %}
+{% block title %}Melody Studio — Melody Sheet{% endblock %}
 
-    .controls {
+{% block content %}
+<div class="tool-header">
+    <h1>🎛️ Melody Studio</h1>
+    <p class="subtitle">Generate melody ideas from a key &amp; scale — play them, pick a favorite, export MIDI, or send them straight into the Aether sequencer. Runs entirely in your browser.</p>
+</div>
+<div class="mt-studio">
+<style>
+
+.mt-studio {
+    --panel: var(--surface);
+    --panel2: var(--surface-hover);
+    --border: var(--border);
+    --text: var(--text);
+    --muted: var(--text-dim);
+    --accent: var(--accent);
+    --accent2: var(--accent-bright);
+    --green: var(--success);
+}
+
+    
+    
+    .wrap { max-width: 1100px; margin: 0 auto; }
+    .mt-studio header { text-align: center; margin-bottom: 28px; }
+    .mt-studio header h1 { font-size: 28px; font-weight: 600; }
+    .mt-studio header h1 span { color: var(--accent); }
+    .mt-studio header p { color: var(--muted); font-size: 14px; margin-top: 6px; }
+
+.mt-studio .controls {
       background: var(--panel); border: 1px solid var(--border);
       border-radius: 12px; padding: 20px; margin-bottom: 24px;
       display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 16px;
     }
     .control label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px; }
-    .control select, .control input[type="number"] {
+.mt-studio .control select, .mt-studio .control input[type="number"] {
       width: 100%; background: var(--panel2); border: 1px solid var(--border);
       color: var(--text); padding: 8px 10px; border-radius: 6px; font-size: 14px;
     }
     .actions { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; margin-bottom: 28px; }
-    button {
+    .mt-studio button { 
       background: var(--accent); color: white; border: none; padding: 12px 24px;
       border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer;
       transition: opacity 0.15s, transform 0.05s;
     }
-    button:hover { opacity: 0.9; }
-    button:active { transform: scale(0.98); }
-    button.secondary { background: var(--panel2); border: 1px solid var(--border); }
-    button:disabled { opacity: 0.4; cursor: not-allowed; }
+    .mt-studio button:hover { opacity: 0.9; }
+    .mt-studio button:active { transform: scale(0.98); }
+    .mt-studio button.secondary { background: var(--panel2); border: 1px solid var(--border); }
+    .mt-studio button:disabled { opacity: 0.4; cursor: not-allowed; }
 
     .ideas { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
-    .idea {
+.mt-studio .idea {
       background: var(--panel); border: 2px solid var(--border); border-radius: 12px;
       padding: 18px; transition: border-color 0.2s;
     }
@@ -51,7 +58,7 @@
     .idea h3 { font-size: 16px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; }
     .idea h3 .badge { font-size: 11px; background: var(--accent2); color: var(--text); padding: 2px 8px; border-radius: 10px; }
     .idea.selected h3 .badge { background: var(--green); color: #04210f; }
-    .notation {
+.mt-studio .notation {
       background: white; border-radius: 6px; padding: 10px; margin-bottom: 12px;
       min-height: 90px; overflow-x: auto;
     }
@@ -62,10 +69,9 @@
 
     .note { font-size: 12px; color: var(--muted); margin-top: 24px; text-align: center; }
     .playing-glow { box-shadow: 0 0 0 2px var(--accent); }
-  </style>
-</head>
-<body>
-  <div class="wrap">
+  
+</style>
+<div class="wrap">
     <header>
       <h1>AI <span>Melody</span> Generator</h1>
       <p>Generate melody ideas from a key &amp; scale — play them, pick a favorite, export MIDI. Runs entirely in your browser.</p>
@@ -124,11 +130,15 @@
 
     <p class="note">No server required. Audio plays through Tone.js. MIDI exports as a single-track .mid file.</p>
   </div>
+</div>
+{% endblock %}
 
-  <script src="vendor/tone.js"></script>
-  <script src="vendor/vexflow.js"></script>
-  <script src="app/melody.js"></script>
-  <script>
+{% block scripts %}
+<script src="{{ url_for('static', filename='vendor/tone.js') }}"></script>
+<script src="{{ url_for('static', filename='vendor/vexflow.js') }}"></script>
+<script src="{{ url_for('static', filename='vendor/melody.js') }}"></script>
+<script>
+
   (function () {
     'use strict';
     var MT = window.MelodyTool;
@@ -217,7 +227,7 @@
         elSendHint.textContent = 'Connected to Aether — generate an idea, then \u201cSend to Aether\u201d drops it into the sequencer\u2019s SYN lane.';
         elSendHint.style.color = '#4ade80';
       } else {
-        elSendHint.textContent = 'Tip: open this page from Aether\u2019s bridge panel (\u201c🎼 OPEN MELODY GENERATOR\u201d) to send melodies straight into the sequencer.';
+        elSendHint.textContent = 'Tip: open this page from Aether\u2019s bridge panel (\u201c🎛 OPEN MELODY STUDIO (:5000)\u201d) to send melodies straight into the sequencer.';
         elSendHint.style.color = '';
       }
     }
@@ -251,7 +261,7 @@
       var hint = document.getElementById('send-hint');
       if (!window.opener || typeof window.opener.postMessage !== 'function') {
         if (hint) {
-          hint.textContent = 'No Aether tab connected — open this page from Aether\u2019s bridge panel (🎼 OPEN MELODY GENERATOR) to send melodies to the sequencer.';
+          hint.textContent = 'No Aether tab connected — open this page from Aether\u2019s bridge panel (🎛 OPEN MELODY STUDIO (:5000)) to send melodies to the sequencer.';
           hint.style.color = '#e94560';
         }
         return;
@@ -301,6 +311,6 @@
       elStop.disabled = true;
     });
   })();
-  </script>
-</body>
-</html>
+  
+</script>
+{% endblock %}

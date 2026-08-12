@@ -1,0 +1,10 @@
+venv/
+__pycache__/
+*.pyc
+uploads/
+output/
+.env
+.envrc
+.secret_key
+tests/js/node_modules/
+.venv/

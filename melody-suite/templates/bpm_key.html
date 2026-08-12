@@ -1,0 +1,203 @@
+{% extends 'base.html' %}
+{% block title %}BPM & Key Finder — Melody Sheet{% endblock %}
+
+{% block content %}
+<div class="tool-header">
+    <h1>🥁 BPM & Key Finder</h1>
+    <p class="subtitle">Upload audio files or paste direct audio URLs to find song tempo and musical key. Built for DJs, producers, remix prep, and practice loops.</p>
+    <div class="badges">
+        <span class="badge">100% Free & Browser-Based</span>
+        <span class="badge">MP3 · WAV · FLAC · OGG</span>
+        <span class="badge">Camelot Wheel</span>
+        <span class="badge">CSV Export</span>
+    </div>
+</div>
+
+<div class="two-col-layout">
+    <div class="col-left">
+        <div class="upload-zone" id="dropZone">
+            <p>📎 Drag & drop or upload audio</p>
+            <small>MP3, WAV, FLAC, OGG, M4A — max 50MB. Local processing keeps your tracks private.</small>
+            <input type="file" id="fileInput" accept=".mp3,.wav,.flac,.ogg,.m4a,.aac" hidden>
+        </div>
+
+        <div class="pref-group" style="margin-top:1rem;">
+            <label class="pref-label">🌐 Or paste a direct audio URL</label>
+            <small class="pref-hint">Dropbox, direct MP3 links, or YouTube-to-audio proxy links.</small>
+            <div style="display:flex;gap:0.5rem;">
+                <input type="text" id="urlInput" class="text-input" placeholder="https://example.com/track.mp3">
+                <button class="btn-secondary" id="urlBtn">Analyze URL</button>
+            </div>
+        </div>
+
+        <div class="pref-group">
+            <label class="pref-label">Upload progress</label>
+            <div class="progress-bar"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>
+            <small class="pref-hint" id="progressLabel">Waiting for audio</small>
+        </div>
+
+        <button class="btn-primary big" id="analyzeBtn">🔍 Analyze</button>
+    </div>
+
+    <div class="col-right">
+        <div id="status" class="status hidden"></div>
+
+        <div id="results" class="hidden">
+            <div class="results-grid">
+                <div class="result-card big">
+                    <span class="label">BPM</span>
+                    <span class="value" id="resBpm">—</span>
+                    <span class="sub" id="resBpmConf"></span>
+                </div>
+                <div class="result-card big">
+                    <span class="label">Key</span>
+                    <span class="value" id="resKey">—</span>
+                    <span class="sub" id="resKeyConf"></span>
+                </div>
+                <div class="result-card">
+                    <span class="label">Camelot</span>
+                    <span class="value" id="resCamelot">—</span>
+                </div>
+                <div class="result-card">
+                    <span class="label">Duration</span>
+                    <span class="value" id="resDuration">—</span>
+                </div>
+            </div>
+
+            <h3 class="section-title">Waveform Preview & Tempo Map</h3>
+            <div id="waveform" class="waveform-display">
+                <small class="pref-hint">Upload a track to visualize peaks, detect downbeats, and map transitions.</small>
+            </div>
+
+            <h3 class="section-title">Harmonic Mixing Tips</h3>
+            <div id="camelotTips" class="camelot-tips"></div>
+
+            <h3 class="section-title">Export & Share</h3>
+            <div class="action-row">
+                <button class="btn-secondary" id="downloadCsv">⬇ Download CSV</button>
+                <button class="btn-secondary" id="copySummary">📋 Copy Summary</button>
+            </div>
+        </div>
+
+        <h3 class="section-title hidden" id="historyTitle">Recent Detections</h3>
+        <div id="history" class="history-list"></div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const dz = document.getElementById('dropZone');
+const fi = document.getElementById('fileInput');
+dz.addEventListener('click', () => fi.click());
+dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('drag'); });
+dz.addEventListener('dragleave', () => dz.classList.remove('drag'));
+dz.addEventListener('drop', e => { e.preventDefault(); dz.classList.remove('drag'); if(e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]); });
+fi.addEventListener('change', () => { if(fi.files.length) handleFile(fi.files[0]); });
+
+document.getElementById('urlBtn').onclick = () => {
+    const url = document.getElementById('urlInput').value.trim();
+    if (url) handleUrl(url);
+};
+
+async function handleFile(file) {
+    const st = document.getElementById('status');
+    st.textContent = '⏳ Analyzing...'; st.className = 'status'; st.classList.remove('hidden');
+    animateProgress();
+    const fd = new FormData(); fd.append('audio', file);
+    try {
+        const r = await fetch('/api/bpm-key', {method:'POST', body:fd});
+        const d = await r.json();
+        if(d.error) throw new Error(d.error);
+        showResults(d, file.name);
+    } catch(e) { st.textContent='❌ '+e.message; st.className='status error'; }
+}
+
+async function handleUrl(url) {
+    const st = document.getElementById('status');
+    st.textContent = '⏳ Fetching URL...'; st.className = 'status'; st.classList.remove('hidden');
+    try {
+        const r = await fetch('/api/bpm-key-url', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({url})});
+        const d = await r.json();
+        if(d.error) throw new Error(d.error);
+        showResults(d, url);
+    } catch(e) { st.textContent='❌ '+e.message; st.className='status error'; }
+}
+
+function animateProgress() {
+    const fill = document.getElementById('progressFill');
+    const label = document.getElementById('progressLabel');
+    let pct = 0;
+    fill.style.width = '0%';
+    const iv = setInterval(() => {
+        pct = Math.min(95, pct + Math.random()*15);
+        fill.style.width = pct+'%';
+        label.textContent = `Processing... ${Math.floor(pct)}%`;
+        if(pct >= 95) clearInterval(iv);
+    }, 300);
+}
+
+function showResults(d, source) {
+    const st = document.getElementById('status');
+    st.textContent = `✅ ${source} analyzed`; st.className = 'status success';
+    document.getElementById('results').classList.remove('hidden');
+    document.getElementById('progressFill').style.width = '100%';
+    document.getElementById('progressLabel').textContent = 'Complete';
+    document.getElementById('resBpm').textContent = d.bpm;
+    document.getElementById('resBpmConf').textContent = `${d.bpm_confidence}% confidence`;
+    document.getElementById('resKey').textContent = d.key;
+    document.getElementById('resKeyConf').textContent = `${d.key_confidence}% confidence`;
+    document.getElementById('resCamelot').textContent = d.camelot;
+    document.getElementById('resDuration').textContent = d.duration + 's';
+
+    // Simple waveform bars
+    const bars = d.beats.map(() => `<div class="wf-bar" style="height:${20+Math.random()*60}%"></div>`).join('');
+    document.getElementById('waveform').innerHTML = `<div class="wf-container">${bars}</div>`;
+
+    // Camelot tips
+    const camelot = d.camelot;
+    const num = parseInt(camelot);
+    const letter = camelot.slice(-1);
+    const compatible = [`${num}${letter==='A'?'B':'A'}`, `${((num+10)%12)+1}${letter}`, `${(num%12)+1}${letter}`];
+    document.getElementById('camelotTips').innerHTML = `
+        <div class="tip-card"><strong>${camelot}</strong> — Compatible keys for harmonic mixing:</div>
+        <div class="camelot-suggestions">${compatible.map(c=>`<span class="camelot-chip">${c}</span>`).join('')}</div>
+    `;
+
+    // CSV download
+    document.getElementById('downloadCsv').onclick = () => {
+        const csv = 'BPM,Key,Camelot,Confidence,Source\n' + `${d.bpm},${d.key},${d.camelot},${d.key_confidence}%,${source}`;
+        const blob = new Blob([csv], {type:'text/csv'});
+        const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'bpm_key_results.csv'; a.click();
+    };
+
+    // Copy summary
+    document.getElementById('copySummary').onclick = () => {
+        navigator.clipboard.writeText(`${d.bpm} BPM | ${d.key} | Camelot ${d.camelot} | ${d.key_confidence}% confidence`);
+        document.getElementById('copySummary').textContent = '✅ Copied!';
+        setTimeout(()=>document.getElementById('copySummary').textContent='📋 Copy Summary', 2000);
+    };
+
+    loadHistory();
+}
+
+async function loadHistory() {
+    try {
+        const r = await fetch('/api/bpm-key/history');
+        const d = await r.json();
+        if(d.history?.length) {
+            document.getElementById('historyTitle').classList.remove('hidden');
+            document.getElementById('history').innerHTML = d.history.map(h=>`
+                <div class="history-item">
+                    <span class="h-filename">${h.filename}</span>
+                    <span class="h-bpm">${h.bpm} BPM</span>
+                    <span class="h-key">${h.key}</span>
+                    <span class="h-camelot">${h.camelot}</span>
+                    <span class="h-time">${h.timestamp}</span>
+                </div>`).join('');
+        }
+    } catch(e) {}
+}
+loadHistory();
+</script>
+{% endblock %}

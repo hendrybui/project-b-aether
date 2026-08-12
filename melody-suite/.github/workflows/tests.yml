@@ -1,0 +1,47 @@
+name: tests
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  python-tests:
+    name: Python (pytest)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run pytest
+        run: python -m pytest tests/ -q
+
+  js-tests:
+    name: JS (jsdom)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: tests/js
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: tests/js/package-lock.json
+
+      - name: Install JS dependencies
+        run: npm ci
+
+      - name: Run jsdom tests
+        run: npm test

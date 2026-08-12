@@ -1,0 +1,199 @@
+{% extends 'base.html' %}
+{% block title %}AI Melody Generator — Melody Sheet{% endblock %}
+
+{% block content %}
+<div class="tool-header">
+    <h1>🎶 AI Melody Generator — Idea Lab</h1>
+    <p class="subtitle">Turn mood prompts into MIDI-friendly melodies. Generate three candidates, compare them, and branch from the strongest one.</p>
+    <div class="badges">
+        <span class="badge">3-Candidate Grid</span>
+        <span class="badge">Markov Engine</span>
+        <span class="badge">Idea Shelf (6 slots)</span>
+        <span class="badge">MIDI · JSON Export</span>
+    </div>
+</div>
+
+<div class="batch-header">
+    <h3>Current Batch</h3>
+    <div class="batch-fields">
+        <div class="control-group">
+            <label>Ideas</label>
+            <select id="ideasCount"><option value="3" selected>3</option><option value="5">5</option></select>
+        </div>
+        <div class="control-group">
+            <label>Tempo (BPM)</label>
+            <input type="number" id="tempoField" value="96" min="40" max="240" style="width:70px;">
+        </div>
+        <div class="control-group">
+            <label>Bars</label>
+            <select id="barsSelect"><option value="2">2</option><option value="4" selected>4</option><option value="8">8</option></select>
+        </div>
+        <div class="control-group">
+            <label>Mode</label>
+            <select id="modeSelect"><option value="vae">VAE (Fresh ideas)</option><option value="rnn" selected>RNN (Continuation)</option></select>
+        </div>
+        <div class="control-group">
+            <label>Temperature: <span id="tempValue">1.0</span></label>
+            <input type="range" id="tempSlider" min="0.3" max="1.5" step="0.1" value="1.0">
+        </div>
+    </div>
+</div>
+
+<div class="prompt-row">
+    <input type="text" id="promptInput" class="text-input" value="warm lo-fi intro for late-night study" placeholder="Describe the hook you want (mood, genre, tempo intent, scene context)...">
+</div>
+
+<button class="btn-primary big" id="generateBtn">🎵 Generate Ideas</button>
+
+<div id="status" class="status hidden"></div>
+
+<div id="candidates" class="candidate-grid"></div>
+
+<div class="shelf-section">
+    <h3 class="section-title" id="shelfTitle">Idea Shelf <small>(0/6)</small></h3>
+    <div id="shelf" class="shelf-grid"></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let shelf = [];
+try { const _s = sessionStorage.getItem('melodyShelf'); if (_s) shelf = JSON.parse(_s); } catch(e) {}
+const ts = document.getElementById('tempSlider');
+ts.addEventListener('input', () => document.getElementById('tempValue').textContent = ts.value);
+document.getElementById('generateBtn').onclick = () => generate('fresh');
+
+async function generate(mode, seedMelody=null) {
+    const st = document.getElementById('status');
+    st.textContent = mode==='fresh' ? '⏳ Generating candidates...' : '⏳ Continuing melody...';
+    st.className = 'status'; st.classList.remove('hidden');
+    const prompt = document.getElementById('promptInput').value;
+    const temperature = parseFloat(ts.value);
+    const bars = parseInt(document.getElementById('barsSelect').value);
+    const count = parseInt(document.getElementById('ideasCount').value);
+    const engineMode = document.getElementById('modeSelect').value;
+    const body = {prompt, mode, temperature, bars, count, engine_mode: engineMode};
+    if(seedMelody) body.seed_melody = seedMelody;
+    try {
+        const r = await fetch('/api/melody/generate', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+        const d = await r.json();
+        if(d.error) throw new Error(d.error);
+        st.textContent = `✅ ${d.candidates.length} candidates generated`;
+        st.className = 'status success';
+        renderCandidates(d.candidates);
+        sessionStorage.setItem('melodyCandidates', JSON.stringify(d.candidates));
+    } catch(e) { st.textContent='❌ '+e.message; st.className='status error'; }
+}
+
+function renderCandidates(cands) {
+    document.getElementById('candidates').innerHTML = cands.map((c,i)=>`
+        <div class="candidate-card">
+            <div class="candidate-header">
+                <span class="candidate-num">Idea slot ${i+1}</span>
+                <span class="candidate-meta">${c.key} · ${c.tempo} BPM · ${c.mode||'fresh'}</span>
+            </div>
+            <div class="note-strip">${c.notes.map(n=>`<span class="note-pill">${n.pitch_name}</span>`).join('')}</div>
+            <div class="candidate-actions">
+                <button class="btn-mini" onclick="playMelody(${JSON.stringify(c.notes).replace(/"/g,'&quot;')})">▶ Play</button>
+                <button class="btn-mini" onclick="continueMelody(${JSON.stringify(c.notes).replace(/"/g,'&quot;')})">↻ Continue</button>
+                <button class="btn-mini" onclick="saveToShelf(${JSON.stringify(c).replace(/"/g,'&quot;')})">★ Save</button>
+                <button class="btn-mini" onclick="sendToEditor(${JSON.stringify(c.notes).replace(/"/g,'&quot;')})">📤 Send to Editor</button>
+                <button class="btn-mini" onclick="sendToAether(${JSON.stringify(c).replace(/"/g,'&quot;')})">⇢ Send to Aether</button>
+                ${c.midi_url?`<a class="btn-mini" href="${c.midi_url}" download>⬇ MIDI</a>`:''}
+                <button class="btn-mini" onclick="downloadMelodyJson(${JSON.stringify(c).replace(/"/g,'&quot;')})">⬇ JSON</button>
+            </div>
+        </div>`).join('');
+}
+
+window.playMelody = function(notes) {
+    const ctx=new AudioContext(), s=ctx.currentTime+0.1;
+    notes.forEach(n=>{
+        const o=ctx.createOscillator(),g=ctx.createGain();
+        o.frequency.value=440*Math.pow(2,(n.pitch-69)/12);o.type='sine';
+        const t=s+n.start*0.5,d=n.duration*0.5;
+        g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(0.3,t+0.01);g.gain.linearRampToValueAtTime(0,t+d*0.95);
+        o.connect(g);g.connect(ctx.destination);o.start(t);o.stop(t+d);
+    });
+};
+window.continueMelody = function(seedNotes) {
+    const sm = seedNotes.map(n=>({pitch:n.pitch,start:n.start,duration:n.duration,pitch_name:n.pitch_name}));
+    generate('continue', sm);
+};
+window.downloadMelodyJson = function(cand) {
+    const blob = new Blob([JSON.stringify(cand, null, 2)], {type:'application/json'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'melody.json';
+    a.click();
+};
+window.saveToShelf = function(cand) {
+    if(shelf.length>=6){alert('Shelf full (6 max).');return;}
+    shelf.push(cand); renderShelf();
+};
+window.sendToEditor = function(notes) {
+    // Store in sessionStorage for the editor to pick up
+    sessionStorage.setItem('editorImport', JSON.stringify(notes));
+    window.location.href = '/tools/melody-sheet/interactive-sheet-music-editor-playback';
+};
+window.sendToAether = function(cand) {
+    // Same contract as the music-tools generator: postMessage to the Aether
+    // tab that opened us. Notes are {midi, beats} in beats; rests (midi:
+    // null) preserve any gap between note starts.
+    if (!window.opener || typeof window.opener.postMessage !== 'function') {
+        const st = document.getElementById('status');
+        st.textContent = 'No Aether tab connected — open this page from Aether\u2019s bridge panel (🎼 OPEN MELODY GENERATOR) to send melodies to the sequencer.';
+        st.className = 'status error'; st.classList.remove('hidden');
+        return;
+    }
+    const notes = [];
+    let cursor = 0;
+    (cand.notes || []).forEach(n => {
+        const start = n.start || 0;
+        const beats = Math.max(0.001, n.duration || 0.5);
+        if (start > cursor + 0.001) notes.push({ midi: null, beats: Math.round((start - cursor) * 1000) / 1000 });
+        notes.push({ midi: n.pitch, beats: Math.round(beats * 1000) / 1000 });
+        cursor = start + beats;
+    });
+    const st = document.getElementById('status');
+    if (!notes.length) { st.textContent = 'Nothing to send — no notes.'; st.className = 'status error'; st.classList.remove('hidden'); return; }
+    window.opener.postMessage({
+        source: 'melody-suite-melody',
+        version: 1,
+        bpm: cand.tempo || 96,
+        key: cand.key || '',
+        scale: cand.scale || '',
+        notes,
+        idea: cand.candidate_id ?? 0,
+    }, '*');
+    st.textContent = `✅ ${notes.length} notes sent to Aether sequencer`;
+    st.className = 'status success'; st.classList.remove('hidden');
+};
+window.removeFromShelf = function(i) { shelf.splice(i,1); renderShelf(); };
+
+// Restore the last generated candidates + shelf so navigating between the
+// suite's pages doesn't wipe them (sessionStorage survives page loads).
+try {
+    const _c = sessionStorage.getItem('melodyCandidates');
+    if (_c) { const cands = JSON.parse(_c); if (Array.isArray(cands) && cands.length) renderCandidates(cands); }
+} catch(e) {}
+renderShelf();
+
+function renderShelf() {
+    const t=document.getElementById('shelfTitle');
+    const d=document.getElementById('shelf');
+    if(shelf.length){t.innerHTML=`Idea Shelf <small>(${shelf.length}/6)</small>`;
+        d.innerHTML=shelf.map((c,i)=>`
+            <div class="shelf-card">
+                <span class="shelf-num">${i+1}</span>
+                <span class="shelf-key">${c.key||'?'}</span>
+                <div class="shelf-actions">
+                    <button class="btn-mini" onclick="playMelody(${JSON.stringify(c.notes).replace(/"/g,'&quot;')})">▶</button>
+                    <button class="btn-mini" onclick="sendToAether(${JSON.stringify(c).replace(/"/g,'&quot;')})">⇢</button>
+                    <button class="btn-mini" onclick="removeFromShelf(${i})">✕</button>
+                </div>
+            </div>`).join('');
+    } else { t.innerHTML='Idea Shelf <small>(0/6)</small>'; d.innerHTML=''; }
+    sessionStorage.setItem('melodyShelf', JSON.stringify(shelf));
+}
+</script>
+{% endblock %}

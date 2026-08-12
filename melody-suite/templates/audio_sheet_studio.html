@@ -1,28 +1,34 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Audio → Sheet Music — Music Tools</title>
-  <style>
-    :root {
-      --bg: #0f1117; --panel: #1a1d27; --panel2: #232734; --border: #2d3142;
-      --text: #e4e6eb; --muted: #8b90a0; --accent: #e94560; --accent2: #0f3460;
-      --green: #4ade80;
-      --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    }
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: var(--font); background: var(--bg); color: var(--text);
-      min-height: 100vh; padding: 24px; line-height: 1.5;
-    }
-    .wrap { max-width: 1100px; margin: 0 auto; }
-    header { text-align: center; margin-bottom: 28px; }
-    header h1 { font-size: 28px; font-weight: 600; }
-    header h1 span { color: var(--accent); }
-    header p { color: var(--muted); font-size: 14px; margin-top: 6px; }
+{% extends 'base.html' %}
+{% block title %}Audio to Sheet Studio — Melody Sheet{% endblock %}
 
-    .upload {
+{% block content %}
+<div class="tool-header">
+    <h1>🎼 Audio to Sheet Studio</h1>
+    <p class="subtitle">Upload an audio file — the AudioMass transcribe engine detects the notes and VexFlow renders them on a staff.</p>
+</div>
+<div class="mt-studio">
+<style>
+
+.mt-studio {
+    --panel: var(--surface);
+    --panel2: var(--surface-hover);
+    --border: var(--border);
+    --text: var(--text);
+    --muted: var(--text-dim);
+    --accent: var(--accent);
+    --accent2: var(--accent-bright);
+    --green: var(--success);
+}
+
+    
+    
+    .wrap { max-width: 1100px; margin: 0 auto; }
+    .mt-studio header { text-align: center; margin-bottom: 28px; }
+    .mt-studio header h1 { font-size: 28px; font-weight: 600; }
+    .mt-studio header h1 span { color: var(--accent); }
+    .mt-studio header p { color: var(--muted); font-size: 14px; margin-top: 6px; }
+
+.mt-studio .upload {
       background: var(--panel); border: 2px dashed var(--border); border-radius: 12px;
       padding: 40px 20px; margin-bottom: 24px; text-align: center; cursor: pointer;
       transition: border-color 0.2s, background 0.2s;
@@ -33,39 +39,39 @@
     .upload-text { font-size: 16px; }
     .upload-hint { font-size: 13px; color: var(--muted); margin-top: 6px; }
 
-    .controls {
+.mt-studio .controls {
       background: var(--panel); border: 1px solid var(--border);
       border-radius: 12px; padding: 16px 20px; margin-bottom: 20px;
       display: flex; gap: 16px; flex-wrap: wrap; align-items: center;
     }
     .controls label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
-    .controls select, .controls input[type="number"] {
+.mt-studio .controls select, .mt-studio .controls input[type="number"] {
       background: var(--panel2); border: 1px solid var(--border); color: var(--text);
       padding: 6px 10px; border-radius: 6px; font-size: 14px;
     }
     .controls .field { display: flex; flex-direction: column; gap: 4px; }
-    .controls button {
+.mt-studio .controls button {
       background: var(--accent); color: white; border: none; padding: 8px 18px;
       border-radius: 6px; font-size: 14px; font-weight: 600; cursor: pointer;
     }
     .controls button:disabled { opacity: 0.4; cursor: not-allowed; }
     .controls button.secondary { background: var(--panel2); border: 1px solid var(--border); }
 
-    .status {
+.mt-studio .status {
       text-align: center; padding: 20px; color: var(--muted); font-size: 14px;
     }
     .status.error { color: var(--accent); }
-    .progress-bar {
+.mt-studio .progress-bar {
       width: 100%; max-width: 400px; height: 8px; background: var(--panel2);
       border-radius: 4px; overflow: hidden; margin: 12px auto; display: none;
     }
     .progress-bar.show { display: block; }
-    .progress-fill {
+.mt-studio .progress-fill {
       height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent2));
       width: 0%; transition: width 0.3s;
     }
 
-    .sheet-area {
+.mt-studio .sheet-area {
       background: white; border-radius: 12px; padding: 24px; overflow-x: auto;
       min-height: 200px;
     }
@@ -78,10 +84,9 @@
     .note-list th { color: var(--muted); font-weight: 500; }
     .stats { display: flex; gap: 24px; margin-bottom: 16px; font-size: 13px; color: var(--muted); }
     .stats b { color: var(--text); }
-  </style>
-</head>
-<body>
-  <div class="wrap">
+  
+</style>
+<div class="wrap">
     <header>
       <h1>Audio → <span>Sheet Music</span></h1>
       <p>Upload an audio file — basic-pitch transcribes the notes, VexFlow renders them on a staff.</p>
@@ -124,10 +129,15 @@
         <tbody id="notetbody"></tbody></table>
     </div>
   </div>
+</div>
+{% endblock %}
 
-  <script src="vendor/vexflow.js"></script>
-  <script src="vendor/tone.js"></script>
-  <script>
+{% block scripts %}
+<script src="{{ url_for('static', filename='vendor/tone.js') }}"></script>
+<script src="{{ url_for('static', filename='vendor/vexflow.js') }}"></script>
+<script src="{{ url_for('static', filename='vendor/melody.js') }}"></script>
+<script>
+
   (function () {
     'use strict';
     var Vex = window.VexFlow; // VexFlow 5 global
@@ -371,7 +381,6 @@
     document.getElementById('rerender').addEventListener('click', renderAndList);
     document.getElementById('clef').addEventListener('change', renderAndList);
   })();
-  </script>
-  <script src="app/melody.js"></script>
-  </body>
-</html>
+  
+</script>
+{% endblock %}

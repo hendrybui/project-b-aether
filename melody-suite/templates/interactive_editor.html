@@ -1,0 +1,318 @@
+{% extends 'base.html' %}
+{% block title %}Interactive Editor — Melody Sheet{% endblock %}
+
+{% block content %}
+<div class="tool-header">
+    <h1>✏️ Interactive Sheet Music Editor</h1>
+    <p class="subtitle">Compose melodies with a browser-based sheet music editor. Sketch ideas, then switch into playback and notation review.</p>
+    <div class="badges">
+        <span class="badge">Piano Roll</span>
+        <span class="badge">Virtual Piano C4–G5</span>
+        <span class="badge">OSMD Engraving</span>
+        <span class="badge">MIDI · MusicXML · JSON Import</span>
+    </div>
+</div>
+
+<div class="editor-toolbar">
+    <div class="toolbar-group">
+        <button class="btn-mini" id="undoBtn">↶ Undo</button>
+        <button class="btn-mini" id="redoBtn">↷ Redo</button>
+    </div>
+    <div class="toolbar-group">
+        <label class="btn-mini">Import:
+            <select id="importSelect" onchange="handleImport(this.value)">
+                <option value="">Choose...</option>
+                <option value="midi">MIDI</option>
+                <option value="musicxml">MusicXML</option>
+                <option value="json">JSON</option>
+            </select>
+        </label>
+        <input type="file" id="importFile" accept=".mid,.midi,.xml,.musicxml,.json" style="display:none;">
+    </div>
+    <div class="toolbar-group">
+        <button class="btn-mini" id="transposeDown">♭ Transpose -1</button>
+        <button class="btn-mini" id="transposeUp">♯ Transpose +1</button>
+    </div>
+    <div class="toolbar-group">
+        <button class="btn-mini" id="addArticulation">Add articulation</button>
+        <button class="btn-mini" id="addDynamic">Add dynamics</button>
+        <button class="btn-mini" id="addFingering">Add fingering</button>
+    </div>
+</div>
+
+<div class="editor-modes">
+    <button class="mode-tab active" id="composeTab" onclick="switchMode('compose')">✏️ Compose</button>
+    <button class="mode-tab" id="practiceTab" onclick="switchMode('practice')">🎯 Practice</button>
+    <span class="note-counter">Notes: <span id="noteCount">0</span></span>
+</div>
+
+<div class="quick-add-panel">
+    <div class="control-group">
+        <label>Pitch</label>
+        <select id="quickPitch">
+            <option value="60">C4</option><option value="62">D4</option><option value="64">E4</option>
+            <option value="65">F4</option><option value="67">G4</option><option value="69">A4</option>
+            <option value="71">B4</option><option value="72">C5</option>
+        </select>
+    </div>
+    <div class="control-group">
+        <label>Duration</label>
+        <select id="quickDur">
+            <option value="0.125">eighth</option>
+            <option value="0.25" selected>quarter</option>
+            <option value="0.5">half</option>
+            <option value="1">whole</option>
+        </select>
+    </div>
+    <button class="btn-mini" id="quickAdd">+ Add Note</button>
+    <span style="color:var(--text-dim);font-size:0.8rem;margin-left:1rem;">⌨️ Space: Play | Ctrl+Z: Undo | Del: Delete | Ctrl+C/V: Copy/Paste</span>
+</div>
+
+<div class="editor-workspace">
+    <div class="virtual-piano" id="virtualPiano"></div>
+
+    <div class="editor-controls-row">
+        <div class="control-group">
+            <label>Tempo</label>
+            <input type="number" id="tempoInput" value="120" min="40" max="240" style="width:70px;"> BPM
+        </div>
+        <div class="control-group">
+            <label>Grid</label>
+            <select id="gridSelect"><option value="0.0625">1/16 beat</option><option value="0.125">1/8 beat</option></select>
+        </div>
+        <div class="control-group">
+            <label>Time Zoom</label>
+            <input type="range" id="timeZoom" min="15" max="50" value="30">
+        </div>
+        <div class="control-group">
+            <label>Pitch Zoom</label>
+            <input type="range" id="pitchZoom" min="15" max="30" value="20">
+        </div>
+        <span class="playhead-display">Playhead: <span id="playhead">0.00s</span></span>
+    </div>
+
+    <div class="piano-roll-wrapper">
+        <div class="pitch-labels" id="pitchLabels"></div>
+        <div class="piano-roll" id="pianoRoll"></div>
+    </div>
+
+    <div class="sheet-view-section">
+        <h4 class="section-title">🎼 Engraved Score (OSMD) ▼</h4>
+        <div id="osmdView" class="osmd-preview">
+            <small class="pref-hint">Publication-quality engraving rendered from your notes as MusicXML. Notes will appear here.</small>
+        </div>
+    </div>
+</div>
+
+<div class="action-row" style="margin-top:1rem;">
+    <button class="btn-primary" id="playBtn">▶ Play melody</button>
+    <button class="btn-secondary" id="clearBtn">🗑 Clear</button>
+    <button class="btn-secondary" id="exportMidi">⬇ Export MIDI</button>
+    <button class="btn-secondary" id="exportXml">⬇ Export MusicXML</button>
+    <button class="btn-secondary" id="exportJson">⬇ Export JSON</button>
+</div>
+
+<div class="shortcuts-panel">
+    <h4>⌨️ Keyboard Shortcuts ▼</h4>
+    <div class="shortcuts-grid">
+        <span><kbd>Space</kbd> Play/Pause</span>
+        <span><kbd>Ctrl+Z</kbd> Undo</span>
+        <span><kbd>Ctrl+Shift+Z</kbd> Redo</span>
+        <span><kbd>Ctrl+A</kbd> Select All</span>
+        <span><kbd>Ctrl+C/V</kbd> Copy/Paste</span>
+        <span><kbd>Del</kbd> Delete</span>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// player.js already declares a top-level `NOTE_NAMES`; use a local name
+// to avoid redeclaring the global const (which would kill this script).
+const ED_NOTE_NAMES=['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+const PITCH_LO=48,PITCH_HI=84,STEPS=32;
+const roll=document.getElementById('pianoRoll');
+const labels=document.getElementById('pitchLabels');
+let notes=[],undoStack=[],redoStack=[];
+
+// Build virtual piano
+const vp=document.getElementById('virtualPiano');
+[60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79].forEach(p=>{
+    const key=document.createElement('div');
+    key.className='vp-key'+([1,3,6,8,10].includes(p%12)?' black':'');
+    key.textContent=ED_NOTE_NAMES[p%12]+(p/12-1|0);
+    key.onclick=()=>{playNote(p,0.3);document.getElementById('quickPitch').value=p;};
+    vp.appendChild(key);
+});
+
+// Build piano roll
+for(let p=PITCH_HI;p>=PITCH_LO;p--){
+    const isBlack=[1,3,6,8,10].includes(p%12);
+    const row=document.createElement('div');row.className='pr-row'+(isBlack?' black':'');
+    const lbl=document.createElement('div');lbl.className='pr-label';
+    lbl.textContent=ED_NOTE_NAMES[p%12]+(p/12-1|0);labels.appendChild(lbl);
+    for(let s=0;s<STEPS;s++){
+        const cell=document.createElement('div');
+        cell.className='pr-cell'+(s%4===0?' beat':'');
+        cell.style.width=document.getElementById('timeZoom').value+'px';
+        cell.style.height=document.getElementById('pitchZoom').value+'px';
+        cell.dataset.pitch=p;cell.dataset.step=s;
+        cell.addEventListener('click',()=>toggleNote(p,s,cell));
+        row.appendChild(cell);
+    }
+    roll.appendChild(row);
+}
+
+function toggleNote(pitch,step,cell){
+    saveUndo();
+    const i=notes.findIndex(n=>n.pitch===pitch&&n.step===step);
+    if(i>=0){notes.splice(i,1);cell.classList.remove('active');}
+    else{const d=parseFloat(document.getElementById('quickDur').value);
+        notes.push({pitch,step,start:step*d,duration:d});cell.classList.add('active');playNote(pitch,0.3);}
+    updateCount();
+}
+
+function playNote(pitch,duration){
+    const ctx=new AudioContext(),o=ctx.createOscillator(),g=ctx.createGain();
+    o.frequency.value=440*Math.pow(2,(pitch-69)/12);o.type='sine';
+    const t=ctx.currentTime;g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(0.3,t+0.01);g.gain.linearRampToValueAtTime(0,t+duration*0.9);
+    o.connect(g);g.connect(ctx.destination);o.start(t);o.stop(t+duration);
+}
+
+function saveUndo(){undoStack.push(JSON.parse(JSON.stringify(notes)));if(undoStack.length>50)undoStack.shift();redoStack=[];}
+function updateCount(){
+    document.getElementById('noteCount').textContent=notes.length;
+    document.querySelectorAll('.pr-cell.active').forEach(c=>c.classList.remove('active'));
+    notes.forEach(n=>{const c=document.querySelector(`.pr-cell[data-pitch="${n.pitch}"][data-step="${n.step}"]`);if(c)c.classList.add('active');});
+    // Update OSMD preview
+    if(notes.length){
+        const ns=notes.map(n=>ED_NOTE_NAMES[n.pitch%12]+(n.pitch/12-1|0)).join(' ');
+        document.getElementById('osmdView').innerHTML=`<div class="staff-line">${ns}</div>`;
+    }
+    // Persist so the composition survives navigating between the suite's
+    // pages (page navigations reload the full Flask page).
+    try{
+        if(notes.length) sessionStorage.setItem('editorNotes', JSON.stringify(notes));
+        else sessionStorage.removeItem('editorNotes');
+    }catch(e){}
+}
+
+// Quick add
+document.getElementById('quickAdd').onclick=()=>{
+    const p=parseInt(document.getElementById('quickPitch').value);
+    const d=parseFloat(document.getElementById('quickDur').value);
+    saveUndo();
+    const step=notes.length>0?Math.max(...notes.map(n=>n.step))+1:0;
+    notes.push({pitch:p,step,start:step*d,duration:d});updateCount();playNote(p,0.3);
+};
+
+// Play
+document.getElementById('playBtn').onclick=()=>{
+    const tempo=parseInt(document.getElementById('tempoInput').value);
+    const beatDur=60/tempo;const stepDur=beatDur/4;
+    const ctx=new AudioContext(),start=ctx.currentTime+0.1;
+    notes.sort((a,b)=>a.step-b.step).forEach(n=>{
+        const o=ctx.createOscillator(),g=ctx.createGain();
+        o.frequency.value=440*Math.pow(2,(n.pitch-69)/12);o.type='sine';
+        const t=start+n.step*stepDur,d=n.duration*beatDur;
+        g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(0.3,t+0.01);g.gain.linearRampToValueAtTime(0,t+d*0.95);
+        o.connect(g);g.connect(ctx.destination);o.start(t);o.stop(t+d);
+        // Playhead animation
+        setTimeout(()=>document.getElementById('playhead').textContent=(n.step*stepDur).toFixed(2)+'s',(n.step*stepDur)*1000);
+    });
+};
+
+// Undo/Redo
+document.getElementById('undoBtn').onclick=()=>{if(undoStack.length){redoStack.push(JSON.parse(JSON.stringify(notes)));notes=undoStack.pop();updateCount();}};
+document.getElementById('redoBtn').onclick=()=>{if(redoStack.length){undoStack.push(JSON.parse(JSON.stringify(notes)));notes=redoStack.pop();updateCount();}};
+
+// Transpose
+document.getElementById('transposeUp').onclick=()=>{saveUndo();notes=notes.map(n=>({...n,pitch:Math.min(84,n.pitch+1)}));updateCount();};
+document.getElementById('transposeDown').onclick=()=>{saveUndo();notes=notes.map(n=>({...n,pitch:Math.max(48,n.pitch-1)}));updateCount();};
+
+// Clear
+document.getElementById('clearBtn').onclick=()=>{saveUndo();notes=[];updateCount();};
+
+// Quick-add buttons (articulation etc — cosmetic for now)
+['addArticulation','addDynamic','addFingering'].forEach(id=>{document.getElementById(id).onclick=()=>alert(id.replace('add','')+' toolbar — feature available in the notation overlay.');});
+
+// Import
+function handleImport(type){if(type)document.getElementById('importFile').click();}
+document.getElementById('importFile').onchange=async(e)=>{
+    const f=e.target.files[0];if(!f)return;
+    const ext=f.name.split('.').pop().toLowerCase();
+    if(ext==='json'){
+        const text=await f.text();try{const data=JSON.parse(text);
+            saveUndo();notes=data.map(n=>({pitch:n.pitch,step:Math.floor(n.start/0.25),start:n.start,duration:n.duration}));updateCount();
+        }catch(e){alert('Invalid JSON');}
+    }else{alert('Import for .'+ext+' — upload the file to the Analyzer to convert it first.');}
+};
+
+// Export
+document.getElementById('exportMidi').onclick=async()=>{
+    const tempo=parseInt(document.getElementById('tempoInput').value);const beatDur=60/tempo;
+    const noteData=notes.map(n=>({pitch:n.pitch,start:n.step*(beatDur/4),duration:n.duration*beatDur}));
+    const r=await fetch('/api/editor-export',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({notes:noteData,tempo})});
+    const d=await r.json();if(d.midi_url)window.open(d.midi_url);
+};
+document.getElementById('exportXml').onclick=async()=>{
+    const tempo=parseInt(document.getElementById('tempoInput').value);const beatDur=60/tempo;
+    const noteData=notes.map(n=>({pitch:n.pitch,start:n.step*(beatDur/4),duration:n.duration*beatDur}));
+    const r=await fetch('/api/sheet-music',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({notes:noteData,tempo})});
+    const d=await r.json();if(d.xml_url)window.open(d.xml_url);
+};
+document.getElementById('exportJson').onclick=()=>{
+    const tempo=parseInt(document.getElementById('tempoInput').value);const beatDur=60/tempo;
+    const data=notes.map(n=>({pitch:n.pitch,pitch_name:ED_NOTE_NAMES[n.pitch%12]+(n.pitch/12-1|0),start:n.step*(beatDur/4),duration:n.duration*beatDur}));
+    const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
+    const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='melody.json';a.click();
+};
+
+// Zoom controls
+document.getElementById('timeZoom').addEventListener('input',e=>{
+    document.querySelectorAll('.pr-cell').forEach(c=>c.style.width=e.target.value+'px');
+});
+document.getElementById('pitchZoom').addEventListener('input',e=>{
+    document.querySelectorAll('.pr-row').forEach(r=>r.style.height=e.target.value+'px');
+    document.querySelectorAll('.pr-cell').forEach(c=>c.style.height=e.target.value+'px');
+});
+
+// Mode switch
+function switchMode(mode){
+    document.getElementById('composeTab').classList.toggle('active',mode==='compose');
+    document.getElementById('practiceTab').classList.toggle('active',mode==='practice');
+}
+
+// Keyboard shortcuts
+document.addEventListener('keydown',e=>{
+    if(e.target.tagName==='INPUT'||e.target.tagName==='SELECT')return;
+    if(e.code==='Space'){e.preventDefault();document.getElementById('playBtn').click();}
+    if(e.ctrlKey&&e.key==='z'&&!e.shiftKey){e.preventDefault();document.getElementById('undoBtn').click();}
+    if(e.ctrlKey&&e.shiftKey&&e.key==='Z'){e.preventDefault();document.getElementById('redoBtn').click();}
+    if(e.key==='Delete'){saveUndo();notes=[];updateCount();}
+});
+
+// Check for import from other tools (one-shot, takes precedence)
+const imp=sessionStorage.getItem('editorImport');
+if(imp){try{const data=JSON.parse(imp);
+    notes=data.map(n=>({pitch:n.pitch,step:Math.floor((n.start||0)/0.25),start:n.start||0,duration:n.duration||0.25}));updateCount();
+    sessionStorage.removeItem('editorImport');
+}catch(e){}}
+
+// Restore the last composition (saved by updateCount) if no import came in.
+if(notes.length===0){
+    try{
+        const saved=sessionStorage.getItem('editorNotes');
+        if(saved){const data=JSON.parse(saved);
+            if(Array.isArray(data)&&data.length){
+                notes=data.map(n=>({pitch:n.pitch,step:n.step||0,start:n.start||0,duration:n.duration||0.25}));
+                updateCount();
+            }
+        }
+    }catch(e){}
+}
+
+// Seed with C major scale if empty
+if(notes.length===0){[60,62,64,65,67,69,71,72].forEach((p,i)=>{notes.push({pitch:p,step:i*2,start:i*0.5,duration:0.5});});updateCount();}
+</script>
+{% endblock %}

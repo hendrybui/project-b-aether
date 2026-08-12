@@ -1,0 +1,219 @@
+{% extends 'base.html' %}
+{% block title %}Multi-part Harmony — Melody Sheet{% endblock %}
+
+{% block content %}
+<div class="tool-header">
+    <h1>🎭 SATB Harmony Arrangement Desk</h1>
+    <p class="subtitle">Turn one lead melody into a professional four-part arrangement. Generate a full SATB stack, solo each voice, compare saved arrangements, and export.</p>
+    <div class="badges">
+        <span class="badge">Model: Coconet-style</span>
+        <span class="badge">Layout: SATB</span>
+        <span class="badge">Arrangement Shelf (6)</span>
+        <span class="badge">CSV · MIDI · MusicXML</span>
+    </div>
+</div>
+
+<div class="two-col-layout">
+    <div class="col-left">
+        <div class="pref-group">
+            <label class="pref-label">Lead melody input (Soprano)</label>
+            <small class="pref-hint">Enter notes as pitch+octave, comma-separated. MIDI notes preferred for best accuracy.</small>
+            <input type="text" id="melodyInput" class="text-input" value="C4, E4, G4, C5, G4, E4, D4, C4" placeholder="C4, D4, E4, F4, G4, A4, G4, C5">
+        </div>
+
+        <div class="pref-group">
+            <label class="pref-label">Note duration (beats per note)</label>
+            <select id="durationSelect">
+                <option value="0.5">8th note (0.5 beats)</option>
+                <option value="1" selected>Quarter (1 beat)</option>
+                <option value="2">Half (2 beats)</option>
+                <option value="4">Whole (4 beats)</option>
+            </select>
+        </div>
+
+        <div class="pref-group">
+            <label class="pref-label">Key</label>
+            <select id="keySelect">
+                <option value="C major">C major</option>
+                <option value="G major">G major</option>
+                <option value="D major">D major</option>
+                <option value="A major">A major</option>
+                <option value="E major">E major</option>
+                <option value="F major">F major</option>
+                <option value="A minor" selected>A minor</option>
+                <option value="E minor">E minor</option>
+                <option value="B minor">B minor</option>
+                <option value="C# minor">C# minor</option>
+                <option value="G minor">G minor</option>
+                <option value="D minor">D minor</option>
+                <option value="C minor">C minor</option>
+            </select>
+        </div>
+
+        <div class="pref-group">
+            <label class="pref-label">Style (Harmony attitude)</label>
+            <div class="segmented-inline" id="styleSelect">
+                <label><input type="radio" name="style" value="conservative"> Conservative</label>
+                <label><input type="radio" name="style" value="balanced" checked> Balanced</label>
+                <label><input type="radio" name="style" value="adventurous"> Adventurous</label>
+            </div>
+            <small class="pref-hint" id="styleHint">Balanced voicing — moderate rule enforcement with some variety.</small>
+        </div>
+
+        <div class="action-row">
+            <button class="btn-primary big" id="generateBtn">🎭 Generate Harmony</button>
+        </div>
+    </div>
+
+    <div class="col-right">
+        <div id="status" class="status hidden"></div>
+
+        <div id="results" class="hidden">
+            <h3 class="section-title">SATB Voice Stack</h3>
+            <div class="satb-controls">
+                <div class="control-group">
+                    <label>Solo voice</label>
+                    <select id="soloSelect">
+                        <option value="all" selected>All voices</option>
+                        <option value="soprano">Soprano only</option>
+                        <option value="alto">Alto only</option>
+                        <option value="tenor">Tenor only</option>
+                        <option value="bass">Bass only</option>
+                    </select>
+                </div>
+            </div>
+
+            <div id="voicingDisplay" class="voicing-list"></div>
+
+            <div class="action-row">
+                <button class="btn-primary" id="playBtn">▶ Play Stack</button>
+                <button class="btn-secondary" id="saveArrangement">💾 Save Arrangement</button>
+                <button class="btn-secondary" id="sendToEditor">📤 Send Lead to Editor</button>
+            </div>
+
+            <h3 class="section-title">Export</h3>
+            <div class="control-group" style="margin-bottom:8px;">
+                <label for="xmlLayout">MusicXML layout</label>
+                <select id="xmlLayout">
+                    <option value="parts4" selected>Four parts (SATB)</option>
+                    <option value="grand">Grand staff (piano)</option>
+                </select>
+                <small class="pref-hint">Renders the current arrangement — switching never regenerates the music.</small>
+            </div>
+            <div class="action-row">
+                <a id="midiLink" class="btn-secondary" style="display:none;">⬇ MIDI</a>
+                <a id="xmlLink" class="btn-secondary" style="display:none;">⬇ MusicXML</a>
+                <button class="btn-secondary" id="exportCsv">⬇ CSV</button>
+                <button class="btn-secondary" id="printBtn">🖨 Print</button>
+            </div>
+
+            <h3 class="section-title">Sheet Preview</h3>
+            <div class="preview-toolbar">
+                <button class="btn-secondary" id="previewBtn">↻ Re-render Preview</button>
+                <small class="pref-hint">Live in-browser render of the MusicXML you download — switches with the layout.</small>
+            </div>
+            <div id="scorePreview" class="score-preview hidden"><div id="scoreContainer"></div></div>
+        </div>
+
+        <h3 class="section-title" id="shelfTitle">Arrangement Shelf <small>(0/6)</small></h3>
+        <div id="shelf" class="shelf-grid"></div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='osmd.min.js') }}"></script>
+<script src="{{ url_for('static', filename='score_preview.js') }}"></script>
+<script>
+let shelf=[];
+let lastVoices=[];
+let lastKey='C major';
+ScorePreview.wirePrint();
+const styleHints={'conservative':'Strict voice-leading rules — fewer voice-leading errors.','balanced':'Balanced voicing — moderate rule enforcement with some variety.','adventurous':'Looser rules — bolder voicings, more risk of parallel intervals.'};
+document.querySelectorAll('input[name="style"]').forEach(r=>r.addEventListener('change',e=>{document.getElementById('styleHint').textContent=styleHints[e.target.value];}));
+
+async function refreshXmlLink(){
+    if(!lastVoices.length)return;
+    const xmlLink=document.getElementById('xmlLink');
+    const layout=document.getElementById('xmlLayout').value;
+    try{
+        const r=await fetch('/api/harmony/xml',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({voices:lastVoices,layout,key:lastKey})});
+        const xd=await r.json();if(xd.error)throw new Error(xd.error);
+        xmlLink.href=xd.xml_url;xmlLink.style.display='inline-block';
+        await renderPreview(xd.xml_url);
+    }catch(e){console.error('MusicXML render failed:',e.message);}
+}
+document.getElementById('xmlLayout').addEventListener('change',refreshXmlLink);
+
+async function renderPreview(xmlUrl){
+    // The harmony page wraps the score in #scorePreview; the shared helper
+    // renders into #scoreContainer and unhides the wrapper on success.
+    return ScorePreview.render(xmlUrl, {panel:'scorePreview'});
+}
+document.getElementById('previewBtn').onclick=async()=>{
+    if(!lastVoices.length)return;
+    const layout=document.getElementById('xmlLayout').value;
+    const r=await fetch('/api/harmony/xml',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({voices:lastVoices,layout,key:lastKey})});
+    const xd=await r.json();
+    if(!xd.error)renderPreview(xd.xml_url);
+};
+
+document.getElementById('generateBtn').onclick=async()=>{
+    const st=document.getElementById('status');
+    const melody=document.getElementById('melodyInput').value.split(',').map(n=>n.trim()).filter(n=>n);
+    const dur=parseFloat(document.getElementById('durationSelect').value);
+    const key=document.getElementById('keySelect').value;
+    const style=document.querySelector('input[name="style"]:checked').value;
+    const notes=melody.map(p=>({pitch:p,duration:dur}));
+    st.textContent='⏳ Generating SATB arrangement...';st.className='status';st.classList.remove('hidden');
+    try{
+        const r=await fetch('/api/harmony',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({notes,key,style})});
+        const d=await r.json();if(d.error)throw new Error(d.error);
+        st.textContent='✅ Harmony generated';st.className='status success';
+        document.getElementById('results').classList.remove('hidden');
+        lastVoices=d.voices;lastKey=key;
+        renderVoicings(d.voices,d.voice_names);
+        if(d.midi_url){document.getElementById('midiLink').href=d.midi_url;document.getElementById('midiLink').style.display='inline-block';}
+        refreshXmlLink();
+        document.getElementById('exportCsv').onclick=()=>{const csv='Voice,Pitch,Duration\n'+d.voices.flatMap(v=>[['S',v.soprano,v.duration],['A',v.alto,v.duration],['T',v.tenor,v.duration],['B',v.bass,v.duration]].map(r=>r.join(','))).join('\n');const b=new Blob([csv],{type:'text/csv'});const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='satb_arrangement.csv';a.click();};
+        document.getElementById('saveArrangement').onclick=()=>{if(shelf.length>=6){alert('Shelf full.');return;}shelf.push(d);renderShelf();};
+        document.getElementById('sendToEditor').onclick=()=>{const lead=d.voices.map(v=>({pitch:v.soprano,start:d.voices.indexOf(v)*v.duration,duration:v.duration}));sessionStorage.setItem('editorImport',JSON.stringify(lead));window.location.href='/tools/melody-sheet/interactive-sheet-music-editor-playback';};
+    }catch(e){st.textContent='❌ '+e.message;st.className='status error';}
+};
+
+function renderVoicings(voices,voiceNames){
+    const colors={soprano:'#60a5fa',alto:'#a78bfa',tenor:'#34d399',bass:'#fbbf24'};
+    const solo=document.getElementById('soloSelect').value;
+    document.getElementById('voicingDisplay').innerHTML=voices.map((v,i)=>`
+        <div class="voicing-card">
+            <div class="voicing-num">${i+1}</div>
+            ${voiceNames.map(vn=>`
+                <div class="voicing-note"${solo!=='all'&&solo!==vn?'style="opacity:0.2"':''}>
+                    <span class="vn-label" style="color:${colors[vn]}">${vn[0].toUpperCase()}</span>
+                    <span class="vn-pitch">${midiToName(v[vn])}</span>
+                </div>`).join('')}
+        </div>`).join('');
+}
+
+document.getElementById('soloSelect').onchange=()=>{if(lastVoices.length)renderVoicings(lastVoices,['soprano','alto','tenor','bass']);};
+
+document.getElementById('playBtn').onclick=()=>{
+    if(!lastVoices.length)return;
+    const solo=document.getElementById('soloSelect').value;
+    const ctx=new AudioContext();const tempo=96;const beatDur=60/tempo;const start=ctx.currentTime+0.1;
+    lastVoices.forEach((v,i)=>{const time=start+i*beatDur*(v.duration||1);const dur=beatDur*(v.duration||1);
+        ['soprano','alto','tenor','bass'].forEach((vn,vi)=>{if(solo!=='all'&&solo!==vn)return;
+            const osc=ctx.createOscillator(),gain=ctx.createGain();
+            osc.frequency.value=440*Math.pow(2,(v[vn]-69)/12);osc.type=vi===3?'triangle':'sine';
+            gain.gain.setValueAtTime(0,time);gain.gain.linearRampToValueAtTime(0.15,time+0.02);gain.gain.linearRampToValueAtTime(0,time+dur);
+            osc.connect(gain);gain.connect(ctx.destination);osc.start(time);osc.stop(time+dur);});});
+};
+
+function midiToName(midi){const ns=['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];return ns[midi%12]+(Math.floor(midi/12)-1);}
+function renderShelf(){const t=document.getElementById('shelfTitle'),d=document.getElementById('shelf');
+    if(shelf.length){t.innerHTML=`Arrangement Shelf <small>(${shelf.length}/6)</small>`;
+        d.innerHTML=shelf.map((s,i)=>`<div class="shelf-card"><span class="shelf-num">${i+1}</span><span class="shelf-key">${s.voices.length} chords</span><div class="shelf-actions"><button class="btn-mini" onclick="playArr(${i})">▶</button><button class="btn-mini" onclick="shelf.splice(${i},1);renderShelf()">✕</button></div></div>`).join('');
+    }else{t.innerHTML='Arrangement Shelf <small>(0/6)</small>';d.innerHTML='';}}
+window.playArr=function(i){lastVoices=shelf[i].voices;document.getElementById('playBtn').click();};
+</script>
+{% endblock %}

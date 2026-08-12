@@ -1,0 +1,126 @@
+{% extends 'base.html' %}
+{% block title %}Mobile Recording — Melody Sheet{% endblock %}
+
+{% block content %}
+<div class="tool-header">
+    <h1>📱 Mobile Live Recording</h1>
+    <p class="subtitle">Capture melody ideas on phones with PWA support, offline caching, and fast transcription into sheet music for further editing.</p>
+    <div class="badges">
+        <span class="badge">PWA Installable</span>
+        <span class="badge">MediaRecorder API</span>
+        <span class="badge">Service Worker Offline</span>
+        <span class="badge">150ms Latency Buffer</span>
+    </div>
+</div>
+
+<div class="recording-studio">
+    <button id="recordBtn" class="record-btn">🎤 Tap start to record</button>
+    <div id="recTimer" class="rec-timer">00:00</div>
+    <div id="recStatus" class="rec-status">Tap start and allow microphone permissions to capture your next idea.</div>
+
+    <div class="rec-controls">
+        <div class="control-group">
+            <label>Latency target: <span id="latencyValue">150</span>ms buffer</label>
+            <input type="range" id="latencySlider" min="50" max="500" step="10" value="150">
+        </div>
+        <button class="btn-secondary" id="pwaBtn">📲 Install as PWA</button>
+    </div>
+
+    <div class="timeline" id="timeline">
+        <div class="timeline-event">Ready to record</div>
+    </div>
+
+    <small class="pref-hint">Note: Audio transcription auto-triggers on stop. iOS: grant mic perms in Safari and keep page foreground. Android: reduce sample rate to 32kHz for best performance.</small>
+</div>
+
+<h3 class="section-title">Recordings</h3>
+<div id="recordingsList" class="recordings-list">
+    <small class="pref-hint">No recordings yet. Click the button above to start.</small>
+</div>
+
+<div id="results" class="hidden">
+    <h3 class="section-title">Transcription Result</h3>
+    <div id="noteStrip" class="note-strip-display"></div>
+    <div class="action-row">
+        <button class="btn-secondary" id="playBtn">▶ Play Notes</button>
+        <a id="midiLink" class="btn-secondary" style="display:none;">⬇ Download MIDI</a>
+        <button class="btn-secondary" id="sendToAnalyzer">📤 Send to Analyzer</button>
+        <button class="btn-secondary" id="sendToHarmony">📤 Send to Harmony</button>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let mediaRecorder=null,chunks=[],recording=false,startTime=0,timerIv=null;
+const recordBtn=document.getElementById('recordBtn');
+const latencySlider=document.getElementById('latencySlider');
+latencySlider.addEventListener('input',()=>document.getElementById('latencyValue').textContent=latencySlider.value);
+document.getElementById('pwaBtn').onclick=()=>{alert('To install as PWA: In Chrome/Edge, click the install icon (⊕) in the address bar, or use Menu → Install app.');};
+
+recordBtn.addEventListener('click',async()=>{
+    if(recording){mediaRecorder.stop();return;}
+    try{
+        const stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true}});
+        chunks=[];mediaRecorder=new MediaRecorder(stream);
+        mediaRecorder.ondataavailable=e=>{if(e.data.size>0)chunks.push(e.data);};
+        mediaRecorder.onstop=()=>{
+            stream.getTracks().forEach(t=>t.stop());
+            const blob=new Blob(chunks,{type:'audio/wav'});
+            finishRecording(blob);
+        };
+        mediaRecorder.start();
+        recording=true;startTime=Date.now();
+        recordBtn.textContent='⏹ Stop Recording';recordBtn.classList.add('recording');
+        document.getElementById('recStatus').textContent='🔴 Recording...';
+        addTimelineEvent('Started · '+new Date().toLocaleTimeString());
+        timerIv=setInterval(()=>{
+            const s=Math.floor((Date.now()-startTime)/1000);
+            document.getElementById('recTimer').textContent=`${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;
+        },200);
+    }catch(e){document.getElementById('recStatus').textContent='❌ Microphone access denied: '+e.message;}
+});
+
+function addTimelineEvent(text){
+    const tl=document.getElementById('timeline');
+    tl.innerHTML=`<div class="timeline-event">${text}</div>`+tl.innerHTML;
+}
+
+function finishRecording(blob){
+    recording=false;clearInterval(timerIv);
+    recordBtn.textContent='🎤 Tap start to record';recordBtn.classList.remove('recording');
+    const secs=((Date.now()-startTime)/1000).toFixed(1);
+    document.getElementById('recStatus').textContent=`✅ Recorded ${secs}s`;
+    addTimelineEvent('Recording ready · '+secs+'s');
+    const url=URL.createObjectURL(blob);
+    const list=document.getElementById('recordingsList');
+    list.innerHTML='<small class="pref-hint"></small>';
+    const div=document.createElement('div');div.className='recording-item';
+    div.innerHTML=`<audio controls src="${url}"></audio><a class="btn-secondary" href="${url}" download="recording.wav">⬇ WAV</a>`;
+    list.prepend(div);
+    transcribeRecording(blob);
+}
+
+async function transcribeRecording(blob){
+    const fd=new FormData();fd.append('audio',blob,'recording.wav');
+    document.getElementById('recStatus').textContent='⏳ Transcribing...';
+    try{
+        const r=await fetch('/api/transcribe',{method:'POST',body:fd});const d=await r.json();
+        if(d.error)throw new Error(d.error);
+        document.getElementById('results').classList.remove('hidden');
+        document.getElementById('noteStrip').innerHTML=d.notes.map(n=>`<span class="note-pill">${n.pitch_name}</span>`).join('');
+        document.getElementById('recStatus').textContent=`✅ ${d.num_notes} notes detected`;
+        if(d.midi_url){document.getElementById('midiLink').href=d.midi_url;document.getElementById('midiLink').style.display='inline-block';}
+        // Store for pipeline tools
+        sessionStorage.setItem('pipelineNotes',JSON.stringify(d.notes));
+        document.getElementById('playBtn').onclick=()=>{const ctx=new AudioContext(),s=ctx.currentTime+0.1;
+            d.notes.forEach(n=>{const o=ctx.createOscillator(),g=ctx.createGain();
+                o.frequency.value=440*Math.pow(2,(n.pitch-69)/12);o.type='sine';
+                const t=s+n.start,dd=n.duration;g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(0.3,t+0.02);g.gain.linearRampToValueAtTime(0,t+dd*0.95);
+                o.connect(g);g.connect(ctx.destination);o.start(t);o.stop(t+dd);});};
+        document.getElementById('sendToAnalyzer').onclick=()=>{sessionStorage.setItem('editorImport',JSON.stringify(d.notes));window.location.href='/tools/melody-sheet';};
+        document.getElementById('sendToHarmony').onclick=()=>{const ns=d.notes.map(n=>({pitch:n.pitch_name,duration:n.duration}));sessionStorage.setItem('harmonyImport',JSON.stringify(ns));window.location.href='/tools/melody-sheet/multi-part-harmony-generation';};
+    }catch(e){document.getElementById('recStatus').textContent='❌ '+e.message;}
+}
+</script>
+{% endblock %}
