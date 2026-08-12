@@ -3,7 +3,9 @@
 # Robust launcher for Aether (AI synth dev) + AudioMass (editor) + Caddy reverse proxy.
 # All live together on the Pandora box for unified creative workflow.
 # - Aether: npm run dev on 5173 (with --base /aether/ so /aether proxy works w/ hot reload + HMR)
-# - AudioMass: its run.sh (uvicorn) on 5055 (relative assets -> /mass proxy works)
+# - AudioMass: its run.sh (stdlib server) on 5055 (relative assets -> /mass proxy works)
+# - DJ Toolkit: dj_toolkit/app.py (flask) on 5001 — stems / BPM-key / vocal remover / MP3->MIDI
+# - Music Tools: music-tools/run.sh (static) on 8091 — melody generator / audio-to-sheet
 # - Caddy: intelligently start/stop/restart using /mnt/Pandora/caddy/Caddyfile if not running or config hash changed.
 #   Uses pidfiles + config hash in /tmp for reliable management across sessions.
 #   Tries direct then sudo -n; continues even if Caddy bind fails (direct ports still work).
@@ -25,18 +27,26 @@ set -euo pipefail
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 AETHER_DIR="$PROJECT_ROOT"
 AUDIOMASS_DIR="$PROJECT_ROOT/audiomass"
+DJ_TOOLKIT_DIR="$PROJECT_ROOT/dj_toolkit"
+MUSIC_TOOLS_DIR="$PROJECT_ROOT/music-tools"
 CADDY_CONFIG="/mnt/Pandora/caddy/Caddyfile"
 
 AETHER_PORT=5173
 AUDIOMASS_PORT=5055
+DJ_TOOLKIT_PORT=5001
+MUSIC_TOOLS_PORT=8091
 
 # Logs and runtime state under /tmp (shared "Pandora" namespace, survives script restarts)
 LOG_DIR="/tmp"
 AETHER_LOG="$LOG_DIR/aether-dev.log"
 AUDIOMASS_LOG="$LOG_DIR/audiomass.log"
+DJ_TOOLKIT_LOG="$LOG_DIR/dj-toolkit.log"
+MUSIC_TOOLS_LOG="$LOG_DIR/music-tools.log"
 CADDY_LOG="$LOG_DIR/pandora-caddy.log"
 AETHER_PIDFILE="$LOG_DIR/aether-dev.pid"
 AUDIOMASS_PIDFILE="$LOG_DIR/audiomass.pid"
+DJ_TOOLKIT_PIDFILE="$LOG_DIR/dj-toolkit.pid"
+MUSIC_TOOLS_PIDFILE="$LOG_DIR/music-tools.pid"
 CADDY_PIDFILE="$LOG_DIR/pandora-caddy.pid"
 CADDY_HASHFILE="$LOG_DIR/pandora-caddy-config.hash"
 
@@ -225,6 +235,60 @@ start_audiomass() {
   log "   Via proxy: http://localhost/mass  (or /audiomass)"
 }
 
+start_dj_toolkit() {
+  log "→ Starting DJ Toolkit (Stems / BPM-Key / Vocal Remover / MP3→MIDI) on :$DJ_TOOLKIT_PORT ..."
+
+  if [ ! -d "$DJ_TOOLKIT_DIR" ]; then
+    log "ERROR: dj_toolkit/ not found at $DJ_TOOLKIT_DIR — skipping (keep it locally next to audiomass/)."
+    return 1
+  fi
+  local venv_py="$AUDIOMASS_DIR/.venv/bin/python"
+  if [ ! -x "$venv_py" ]; then
+    log "ERROR: $venv_py missing — DJ Toolkit needs the audiomass venv (flask + basic-pitch). Skipping."
+    return 1
+  fi
+
+  # Clean prior instance
+  if [ -f "$DJ_TOOLKIT_PIDFILE" ]; then
+    kill "$(cat "$DJ_TOOLKIT_PIDFILE" 2>/dev/null)" 2>/dev/null || true
+    rm -f "$DJ_TOOLKIT_PIDFILE"
+  fi
+  pkill -f "audiomass/.venv/bin/python app.py" 2>/dev/null || true
+
+  cd "$DJ_TOOLKIT_DIR"
+  nohup env DJ_TOOLKIT_PORT="$DJ_TOOLKIT_PORT" "$venv_py" app.py > "$DJ_TOOLKIT_LOG" 2>&1 &
+
+  local pid=$!
+  echo "$pid" > "$DJ_TOOLKIT_PIDFILE"
+
+  log "   DJ Toolkit PID: $pid (logs: $DJ_TOOLKIT_LOG)"
+  log "   Direct: http://localhost:$DJ_TOOLKIT_PORT"
+}
+
+start_music_tools() {
+  log "→ Starting Music Tools (Melody Generator + Audio→Sheet) on :$MUSIC_TOOLS_PORT ..."
+
+  if [ ! -f "$MUSIC_TOOLS_DIR/run.sh" ]; then
+    log "ERROR: music-tools/run.sh not found at $MUSIC_TOOLS_DIR — skipping."
+    return 1
+  fi
+
+  # Clean prior instance
+  if [ -f "$MUSIC_TOOLS_PIDFILE" ]; then
+    kill "$(cat "$MUSIC_TOOLS_PIDFILE" 2>/dev/null)" 2>/dev/null || true
+    rm -f "$MUSIC_TOOLS_PIDFILE"
+  fi
+  pkill -f "http.server $MUSIC_TOOLS_PORT" 2>/dev/null || true
+
+  nohup env MUSIC_TOOLS_PORT="$MUSIC_TOOLS_PORT" "$MUSIC_TOOLS_DIR/run.sh" > "$MUSIC_TOOLS_LOG" 2>&1 &
+
+  local pid=$!
+  echo "$pid" > "$MUSIC_TOOLS_PIDFILE"
+
+  log "   Music Tools PID: $pid (logs: $MUSIC_TOOLS_LOG)"
+  log "   Direct: http://localhost:$MUSIC_TOOLS_PORT/melody-generator.html  (and /audio-to-sheet.html)"
+}
+
 stop_aether() {
   log "Stopping Aether..."
   if [ -f "$AETHER_PIDFILE" ]; then
@@ -258,11 +322,45 @@ stop_audiomass() {
   log "  AudioMass stopped."
 }
 
+stop_dj_toolkit() {
+  log "Stopping DJ Toolkit..."
+  if [ -f "$DJ_TOOLKIT_PIDFILE" ]; then
+    local pid
+    pid=$(cat "$DJ_TOOLKIT_PIDFILE" 2>/dev/null || true)
+    if [ -n "$pid" ]; then
+      kill "$pid" 2>/dev/null || true
+      sleep 0.3
+      kill -9 "$pid" 2>/dev/null || true
+    fi
+    rm -f "$DJ_TOOLKIT_PIDFILE"
+  fi
+  pkill -f "audiomass/.venv/bin/python app.py" 2>/dev/null || true
+  log "  DJ Toolkit stopped."
+}
+
+stop_music_tools() {
+  log "Stopping Music Tools..."
+  if [ -f "$MUSIC_TOOLS_PIDFILE" ]; then
+    local pid
+    pid=$(cat "$MUSIC_TOOLS_PIDFILE" 2>/dev/null || true)
+    if [ -n "$pid" ]; then
+      kill "$pid" 2>/dev/null || true
+      sleep 0.3
+      kill -9 "$pid" 2>/dev/null || true
+    fi
+    rm -f "$MUSIC_TOOLS_PIDFILE"
+  fi
+  pkill -f "http.server $MUSIC_TOOLS_PORT" 2>/dev/null || true
+  log "  Music Tools stopped."
+}
+
 stop_all() {
   stop_aether
   stop_audiomass
+  stop_dj_toolkit
+  stop_music_tools
   stop_caddy
-  log "All (Aether + AudioMass + Caddy) stopped."
+  log "All (Aether + AudioMass + DJ Toolkit + Music Tools + Caddy) stopped."
 }
 
 status() {
@@ -335,6 +433,42 @@ status() {
   echo "  logfile : $AUDIOMASS_LOG"
   echo ""
 
+  # --- DJ Toolkit ---
+  echo "DJ Toolkit (flask :$DJ_TOOLKIT_PORT — stems / BPM-key / vocal remover / MP3→MIDI):"
+  local dpid=""
+  [ -f "$DJ_TOOLKIT_PIDFILE" ] && dpid=$(cat "$DJ_TOOLKIT_PIDFILE" 2>/dev/null || true)
+  if [ -n "$dpid" ] && kill -0 "$dpid" 2>/dev/null; then
+    echo "  RUNNING   pid=$dpid (pidfile)"
+  elif pgrep -f "audiomass/.venv/bin/python app.py" >/dev/null 2>&1; then
+    echo "  RUNNING   (pgrep match)"
+    pgrep -af "app.py" 2>/dev/null | grep -i dj_toolkit | head -1 | sed 's/^/    /'
+  else
+    echo "  NOT RUNNING"
+  fi
+  if ss -tlnp 2>/dev/null | grep -q ":$DJ_TOOLKIT_PORT[ ]"; then
+    echo "  :$DJ_TOOLKIT_PORT listening: YES"
+  fi
+  echo "  logfile : $DJ_TOOLKIT_LOG"
+  echo ""
+
+  # --- Music Tools ---
+  echo "Music Tools (static :$MUSIC_TOOLS_PORT — melody generator / audio→sheet):"
+  local tpid=""
+  [ -f "$MUSIC_TOOLS_PIDFILE" ] && tpid=$(cat "$MUSIC_TOOLS_PIDFILE" 2>/dev/null || true)
+  if [ -n "$tpid" ] && kill -0 "$tpid" 2>/dev/null; then
+    echo "  RUNNING   pid=$tpid (pidfile)"
+  elif pgrep -f "http.server $MUSIC_TOOLS_PORT" >/dev/null 2>&1; then
+    echo "  RUNNING   (pgrep match)"
+    pgrep -af "http.server $MUSIC_TOOLS_PORT" 2>/dev/null | head -1 | sed 's/^/    /'
+  else
+    echo "  NOT RUNNING"
+  fi
+  if ss -tlnp 2>/dev/null | grep -q ":$MUSIC_TOOLS_PORT[ ]"; then
+    echo "  :$MUSIC_TOOLS_PORT listening: YES"
+  fi
+  echo "  logfile : $MUSIC_TOOLS_LOG"
+  echo ""
+
   # --- Proxy tests ---
   echo "Quick proxy tests (http://localhost via Caddy, 2s timeout):"
   for path in / /aether /mass /audiomass; do
@@ -354,11 +488,16 @@ case "${1:-start}" in
     ensure_caddy
     start_aether_dev
     start_audiomass
+    start_dj_toolkit
+    start_music_tools
     echo ""
-    log "Aether + AudioMass + Caddy ready for the creative pair."
+    log "Aether + AudioMass + DJ Toolkit + Music Tools + Caddy ready — the full creative stack."
     log "Recommended unified access (Caddy on :80):"
     log "  http://localhost/aether   → Aether (AI music generation + sequencer, hot reload)"
     log "  http://localhost/mass     → AudioMass (multitrack waveform editor)"
+    log "Direct ports (no proxy needed):"
+    log "  http://localhost:5001     → DJ Toolkit (stems / BPM-key / vocal remover / MP3→MIDI)"
+    log "  http://localhost:8091     → Music Tools (melody generator / audio→sheet)"
     log ""
     log "Handoff (no gaps): In Aether use BOUNCE buttons for stems/full WAV (named aether-*-to-audiomass.wav)."
     log "  Drop to $PROJECT_ROOT/exports/ or audiomass/jobs/_incoming/ for instant import."
@@ -380,6 +519,8 @@ case "${1:-start}" in
     ensure_caddy
     start_aether_dev
     start_audiomass
+    start_dj_toolkit
+    start_music_tools
     log "Restart complete."
     ;;
   status)
@@ -403,8 +544,8 @@ case "${1:-start}" in
   *)
     echo "Usage: $0 {start|stop|restart|status|build-aether|caddy-restart}"
     echo ""
-    echo "  start          Start Caddy (smart: only if needed or config changed) + Aether dev + AudioMass"
-    echo "  stop           Stop Aether + AudioMass + our Caddy instance"
+    echo "  start          Start Caddy (smart) + Aether dev + AudioMass + DJ Toolkit + Music Tools"
+    echo "  stop           Stop everything + our Caddy instance"
     echo "  restart        stop + start"
     echo "  status         Show pids, logs tails, listeners, quick curl tests against proxy"
     echo "  build-aether   Build with correct base for /aether serving"

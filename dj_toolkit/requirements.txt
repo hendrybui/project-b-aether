@@ -1,0 +1,28 @@
+# DJ Toolkit — self-contained Flask app.
+# Install into the shared audiomass/.venv (which already has demucs, torch,
+# librosa, soundfile, numpy). Only the items below may need installing.
+#
+#   pip install -r requirements.txt
+#   pip install --no-deps basic-pitch   # see README — TF pin workaround
+
+flask>=3.0
+requests>=2.31            # only used by potential future features; harmless
+
+# ── BPM/Key/loudness analysis (librosa, in-process) ──────────────────────
+librosa>=0.10
+soundfile>=0.12
+numpy>=1.26
+
+# ── MP3→MIDI (basic-pitch, ONNX backend, no TensorFlow) ──────────────────
+# basic-pitch hard-pins tensorflow<2.15.1 (no Py3.12 wheel). Install it
+# --no-deps and use the bundled ONNX model instead:
+#   pip install --no-deps basic-pitch
+onnxruntime>=1.17
+pretty-midi>=0.2.9
+mir-eval>=0.6
+resampy>=0.2.2,<0.4.3     # basic-pitch pins <0.4.3
+
+# NOTE: demucs itself is NOT a direct dependency here — we call the demucs
+# CLI as a subprocess (see stems_worker.py). It must be installed in whatever
+# venv runs this app (the audiomass/.venv already has it). Set DEMUCS_BIN
+# if it lives elsewhere.

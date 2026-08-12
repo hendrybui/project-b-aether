@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AI Melody Generator — Music Tools</title>
+  <style>
+    :root {
+      --bg: #0f1117; --panel: #1a1d27; --panel2: #232734; --border: #2d3142;
+      --text: #e4e6eb; --muted: #8b90a0; --accent: #e94560; --accent2: #0f3460;
+      --green: #4ade80; --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: var(--font); background: var(--bg); color: var(--text);
+      min-height: 100vh; padding: 24px; line-height: 1.5;
+    }
+    .wrap { max-width: 1100px; margin: 0 auto; }
+    header { text-align: center; margin-bottom: 28px; }
+    header h1 { font-size: 28px; font-weight: 600; }
+    header h1 span { color: var(--accent); }
+    header p { color: var(--muted); font-size: 14px; margin-top: 6px; }
+
+    .controls {
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: 12px; padding: 20px; margin-bottom: 24px;
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 16px;
+    }
+    .control label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px; }
+    .control select, .control input[type="number"] {
+      width: 100%; background: var(--panel2); border: 1px solid var(--border);
+      color: var(--text); padding: 8px 10px; border-radius: 6px; font-size: 14px;
+    }
+    .actions { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; margin-bottom: 28px; }
+    button {
+      background: var(--accent); color: white; border: none; padding: 12px 24px;
+      border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer;
+      transition: opacity 0.15s, transform 0.05s;
+    }
+    button:hover { opacity: 0.9; }
+    button:active { transform: scale(0.98); }
+    button.secondary { background: var(--panel2); border: 1px solid var(--border); }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    .ideas { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
+    .idea {
+      background: var(--panel); border: 2px solid var(--border); border-radius: 12px;
+      padding: 18px; transition: border-color 0.2s;
+    }
+    .idea.selected { border-color: var(--green); }
+    .idea h3 { font-size: 16px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; }
+    .idea h3 .badge { font-size: 11px; background: var(--accent2); color: var(--text); padding: 2px 8px; border-radius: 10px; }
+    .idea.selected h3 .badge { background: var(--green); color: #04210f; }
+    .notation {
+      background: white; border-radius: 6px; padding: 10px; margin-bottom: 12px;
+      min-height: 90px; overflow-x: auto;
+    }
+    .notation svg { display: block; }
+    .idea-controls { display: flex; gap: 8px; flex-wrap: wrap; }
+    .idea-controls button { padding: 7px 14px; font-size: 13px; }
+    .empty { text-align: center; color: var(--muted); padding: 60px 20px; grid-column: 1/-1; }
+
+    .note { font-size: 12px; color: var(--muted); margin-top: 24px; text-align: center; }
+    .playing-glow { box-shadow: 0 0 0 2px var(--accent); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>AI <span>Melody</span> Generator</h1>
+      <p>Generate melody ideas from a key &amp; scale — play them, pick a favorite, export MIDI. Runs entirely in your browser.</p>
+    </header>
+
+    <div class="controls">
+      <div class="control">
+        <label>Key</label>
+        <select id="key">
+          <option>C</option><option>C#</option><option>D</option><option>D#</option>
+          <option>E</option><option>F</option><option>F#</option><option>G</option>
+          <option>G#</option><option>A</option><option>A#</option><option>B</option>
+        </select>
+      </div>
+      <div class="control">
+        <label>Scale</label>
+        <select id="scale">
+          <option value="major">Major</option>
+          <option value="minor">Minor</option>
+          <option value="pentatonic">Pentatonic</option>
+          <option value="minorPentatonic">Minor Pentatonic</option>
+          <option value="blues">Blues</option>
+          <option value="dorian">Dorian</option>
+          <option value="mixolydian">Mixolydian</option>
+          <option value="lydian">Lydian</option>
+        </select>
+      </div>
+      <div class="control">
+        <label>Tempo (BPM)</label>
+        <input type="number" id="bpm" value="120" min="40" max="240">
+      </div>
+      <div class="control">
+        <label>Length (beats)</label>
+        <input type="number" id="length" value="16" min="4" max="64" step="4">
+      </div>
+      <div class="control">
+        <label>Octave</label>
+        <select id="octave">
+          <option value="3">3 (low)</option>
+          <option value="4" selected>4 (middle)</option>
+          <option value="5">5 (high)</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button id="generate">🎼 Generate 3 Ideas</button>
+      <button id="stop" class="secondary" disabled>⏹ Stop</button>
+    </div>
+
+    <div class="ideas" id="ideas">
+      <div class="empty">Pick a key and scale, then click <strong>Generate</strong> to create melody ideas.</div>
+    </div>
+
+    <p class="note">No server required. Audio plays through Tone.js. MIDI exports as a single-track .mid file.</p>
+  </div>
+
+  <script src="vendor/tone.js"></script>
+  <script src="vendor/vexflow.js"></script>
+  <script src="app/melody.js"></script>
+  <script>
+  (function () {
+    'use strict';
+    var MT = window.MelodyTool;
+    var Vex = window.VexFlow; // VexFlow 5 global
+    var ideas = []; // current generated melodies
+    var selectedIdx = -1;
+    var currentlyPlaying = -1;
+
+    var elGenerate = document.getElementById('generate');
+    var elStop = document.getElementById('stop');
+    var elIdeas = document.getElementById('ideas');
+
+    function rootMidi(keyName, octave) {
+      var idx = MT.NOTE_NAMES.indexOf(keyName);
+      return 12 * (parseInt(octave, 10) + 1) + idx; // MIDI: C4 = 60
+    }
+
+    function renderNotation(containerId, melody) {
+      var el = document.getElementById(containerId);
+      el.innerHTML = '';
+      if (!Vex) { el.textContent = '(VexFlow not loaded)'; return; }
+
+      // Map melody -> VexFlow 5 StaveNote specs. The bundled VexFlow 5.0.0
+      // build's EasyScore is broken (notes from it crash Formatter.preFormat),
+      // so notes are built explicitly. VexFlow keys want lowercase pitch +
+      // slash octave ("c#/4"); rests use the same duration with an 'r'.
+      var staveNotes = melody.map(function (n) {
+        var durTok = n.beats >= 1.5 ? 'h' : (n.beats >= 0.75 ? 'q' : '8');
+        if (n.midi === null) {
+          return new Vex.StaveNote({ keys: ['b/4'], duration: durTok + 'r' }); // rest
+        }
+        var name = MT.midiToName(n.midi); // e.g. "C#4"
+        var m = name.match(/^([A-G])([#b]?)(\d)$/);
+        var key = (m ? m[1].toLowerCase() + m[2] : 'c') + '/' + (m ? m[3] : 4);
+        return new Vex.StaveNote({ keys: [key], duration: durTok });
+      });
+
+      try {
+        var renderer = new Vex.Renderer(el, Vex.Renderer.Backends.SVG);
+        renderer.resize(560, 110);
+        var context = renderer.getContext();
+        var stave = new Vex.Stave(10, 10, 540);
+        stave.addClef('treble').addTimeSignature('4/4');
+        stave.setContext(context).draw();
+
+        var voice = new Vex.Voice({ numBeats: 4, beatValue: 4 });
+        voice.setStrict(false);
+        voice.addTickables(staveNotes);
+        new Vex.Formatter().joinVoices([voice]).format([voice], 520);
+        voice.draw(context, stave);
+      } catch (err) {
+        el.textContent = '(notation: ' + (err.message || err) + ')';
+      }
+    }
+
+    function renderIdeas() {
+      elIdeas.innerHTML = '';
+      if (!ideas.length) {
+        elIdeas.innerHTML = '<div class="empty">Pick a key and scale, then click <strong>Generate</strong> to create melody ideas.</div>';
+        return;
+      }
+      ideas.forEach(function (mel, i) {
+        var card = document.createElement('div');
+        card.className = 'idea' + (i === selectedIdx ? ' selected' : '');
+        card.id = 'idea-' + i;
+        card.innerHTML =
+          '<h3>Idea ' + (i + 1) + ' <span class="badge">' +
+            (i === selectedIdx ? '✓ selected' : 'click select') + '</span></h3>' +
+          '<div class="notation" id="notation-' + i + '"></div>' +
+          '<div class="idea-controls">' +
+            '<button onclick="window.__playIdea(' + i + ')">▶ Play</button>' +
+            '<button class="secondary" onclick="window.__selectIdea(' + i + ')">✓ Select</button>' +
+            '<button class="secondary" onclick="window.__exportIdea(' + i + ')"' +
+              (i === selectedIdx ? '' : ' disabled') + '>⬇ MIDI</button>' +
+          '</div>';
+        elIdeas.appendChild(card);
+        renderNotation('notation-' + i, mel);
+      });
+    }
+
+    window.__playIdea = function (i) {
+      if (currentlyPlaying >= 0) MT.stopMelody();
+      currentlyPlaying = i;
+      elStop.disabled = false;
+      var card = document.getElementById('idea-' + i);
+      if (card) card.classList.add('playing-glow');
+      MT.playMelody(ideas[i], parseInt(document.getElementById('bpm').value, 10), function () {
+        if (card) card.classList.remove('playing-glow');
+        currentlyPlaying = -1;
+        elStop.disabled = true;
+      });
+    };
+    window.__selectIdea = function (i) {
+      selectedIdx = i;
+      renderIdeas();
+    };
+    window.__exportIdea = function (i) {
+      var bpm = parseInt(document.getElementById('bpm').value, 10);
+      var bytes = MT.melodyToMidi(ideas[i], bpm);
+      MT.downloadMidi('melody-idea-' + (i + 1) + '.mid', bytes);
+    };
+
+    elGenerate.addEventListener('click', function () {
+      var keyName = document.getElementById('key').value;
+      var scaleName = document.getElementById('scale').value;
+      var bpm = parseInt(document.getElementById('bpm').value, 10);
+      var totalBeats = parseInt(document.getElementById('length').value, 10);
+      var octv = parseInt(document.getElementById('octave').value, 10);
+
+      var root = rootMidi(keyName, octv);
+      var scale = MT.SCALES[scaleName];
+      ideas = [];
+      for (var k = 0; k < 3; k++) {
+        ideas.push(MT.generateMelody({
+          rootMidi: root, scale: scale, totalBeats: totalBeats
+        }));
+      }
+      selectedIdx = -1;
+      renderIdeas();
+    });
+
+    elStop.addEventListener('click', function () {
+      MT.stopMelody();
+      if (currentlyPlaying >= 0) {
+        var card = document.getElementById('idea-' + currentlyPlaying);
+        if (card) card.classList.remove('playing-glow');
+      }
+      currentlyPlaying = -1;
+      elStop.disabled = true;
+    });
+  })();
+  </script>
+</body>
+</html>

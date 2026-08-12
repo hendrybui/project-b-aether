@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block title %}Stems &amp; BPM/Key — DJ Toolkit{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h1 class="h3 mb-0">Stems &amp; BPM/Key</h1>
+  <span class="text-secondary small">demucs CLI subprocess · librosa analysis · self-contained</span>
+</div>
+
+<div class="row g-4">
+  <!-- Upload + model select + progress -->
+  <div class="col-lg-6">
+    <div class="card card-body h-100">
+      <h2 class="h6 text-secondary text-uppercase">1 · Upload &amp; choose a model</h2>
+
+      <label class="form-label small text-secondary mb-1">Separation model</label>
+      <select id="model-select" class="form-select form-select-sm mb-3">
+        {% for id, m in models.items() %}
+          <option value="{{ id }}" {% if id == default_model %}selected{% endif %}>{{ m.label }}</option>
+        {% endfor %}
+      </select>
+
+      <div id="dropzone" class="dropzone" tabindex="0" role="button" aria-label="Upload audio file">
+        <input id="file-input" type="file" accept=".mp3,.wav,.flac,.m4a,.aac,.ogg" hidden>
+        <i class="bi bi-cloud-arrow-up fs-1 text-secondary"></i>
+        <p class="mb-1 mt-2">Drop an audio file here or click to browse</p>
+        <p class="text-secondary small mb-0">mp3 · wav · flac · m4a · aac · ogg — up to 200 MB</p>
+      </div>
+
+      <div id="progress" class="mt-4 d-none">
+        <div class="d-flex justify-content-between small mb-1">
+          <span id="progress-stage">Queued…</span>
+          <span id="progress-pct">0%</span>
+        </div>
+        <div class="progress" role="progressbar" aria-label="Separation progress">
+          <div id="progress-bar" class="progress-bar progress-bar-striped progress-bar-animated" style="width:0%"></div>
+        </div>
+        <p id="progress-message" class="text-secondary small mt-2 mb-0"></p>
+        <p class="text-secondary small mt-1 mb-0">
+          Separation runs demucs in a separate process — 1–3 min on CPU. First use
+          of a model downloads it once.
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Result: BPM/Key + Camelot -->
+  <div class="col-lg-6">
+    <div class="card card-body h-100">
+      <h2 class="h6 text-secondary text-uppercase">2 · Track analysis</h2>
+      <div id="analysis-empty" class="text-center text-secondary py-4">
+        <i class="bi bi-music-note-beamed fs-2"></i>
+        <p class="mt-2 mb-0">BPM, key and Camelot code will appear here.</p>
+      </div>
+      <div id="analysis-result" class="d-none">
+        <div class="row text-center g-3">
+          <div class="col-4">
+            <div class="stat"><span class="stat-value" id="stat-bpm">—</span><span class="stat-label">BPM</span></div>
+          </div>
+          <div class="col-4">
+            <div class="stat"><span class="stat-value" id="stat-key">—</span><span class="stat-label">Key</span></div>
+          </div>
+          <div class="col-4">
+            <div class="stat"><span class="stat-value" id="stat-camelot">—</span><span class="stat-label">Camelot</span></div>
+          </div>
+        </div>
+        <dl class="row small mt-3 mb-0">
+          <dt class="col-6 text-secondary">Confidence</dt><dd class="col-6 text-end" id="stat-confidence">—</dd>
+          <dt class="col-6 text-secondary">LUFS (approx)</dt><dd class="col-6 text-end" id="stat-lufs">—</dd>
+          <dt class="col-6 text-secondary">Peak</dt><dd class="col-6 text-end" id="stat-peak">—</dd>
+          <dt class="col-6 text-secondary">Duration</dt><dd class="col-6 text-end" id="stat-duration">—</dd>
+          <dt class="col-6 text-secondary">Model</dt><dd class="col-6 text-end" id="stat-model">—</dd>
+        </dl>
+      </div>
+    </div>
+  </div>
+
+  <!-- Result: downloads -->
+  <div class="col-12">
+    <div class="card card-body">
+      <h2 class="h6 text-secondary text-uppercase">3 · Downloads</h2>
+      <div id="downloads-empty" class="text-center text-secondary py-4">
+        <p class="mb-0">Stems become downloadable once separation finishes.</p>
+      </div>
+      <div id="downloads-result" class="d-none">
+        <div class="d-flex flex-wrap gap-2 mb-3">
+          <a id="dl-instrumental" class="btn btn-primary" href="#"><i class="bi bi-mic-mute me-1"></i>Instrumental (vocals out)</a>
+          <a id="dl-vocals" class="btn btn-outline-light" href="#"><i class="bi bi-mic me-1"></i>Vocals (acapella)</a>
+          <a id="dl-zip" class="btn btn-outline-light" href="#"><i class="bi bi-file-zip me-1"></i>All stems (ZIP)</a>
+        </div>
+        <hr class="border-secondary">
+        <p class="text-secondary small text-uppercase mb-2">Individual stems (wav / mp3)</p>
+        <div id="stem-list" class="d-flex flex-wrap gap-2"></div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

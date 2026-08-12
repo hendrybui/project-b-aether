@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Music Tools</title>
+  <style>
+    :root {
+      --bg: #0f1117; --panel: #1a1d27; --border: #2d3142; --text: #e4e6eb;
+      --muted: #8b90a0; --accent: #e94560;
+      --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: var(--font); background: var(--bg); color: var(--text);
+      min-height: 100vh; display: flex; flex-direction: column; align-items: center;
+      justify-content: center; padding: 24px;
+    }
+    h1 { font-size: 32px; margin-bottom: 8px; }
+    h1 span { color: var(--accent); }
+    .sub { color: var(--muted); margin-bottom: 40px; font-size: 15px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; max-width: 800px; width: 100%; }
+    .card {
+      background: var(--panel); border: 1px solid var(--border); border-radius: 16px;
+      padding: 32px 24px; text-decoration: none; color: var(--text);
+      transition: transform 0.15s, border-color 0.15s; display: block;
+    }
+    .card:hover { transform: translateY(-3px); border-color: var(--accent); }
+    .card .icon { font-size: 40px; margin-bottom: 16px; }
+    .card h2 { font-size: 20px; margin-bottom: 8px; }
+    .card p { color: var(--muted); font-size: 14px; line-height: 1.5; }
+    .footer { margin-top: 40px; color: var(--muted); font-size: 12px; text-align: center; }
+  </style>
+</head>
+<body>
+  <h1>Music <span>Tools</span></h1>
+  <p class="sub">Local, free, browser-based. No accounts, no API keys.</p>
+  <div class="grid">
+    <a class="card" href="melody-generator.html">
+      <div class="icon">🎼</div>
+      <h2>AI Melody Generator</h2>
+      <p>Pick a key, scale, and tempo. Get 3 melody ideas you can play, compare, and export as MIDI. Powered by Tone.js — runs fully in your browser, no server.</p>
+    </a>
+    <a class="card" href="audio-to-sheet.html">
+      <div class="icon">🎵</div>
+      <h2>Audio → Sheet Music</h2>
+      <p>Upload an audio file. basic-pitch transcribes the pitches, VexFlow renders them on a musical staff. Play back the selection and export MIDI.</p>
+    </a>
+  </div>
+  <p class="footer">Audio → Sheet uses the Audiomass server (:5055) for transcription. Melody Generator needs no server.</p>
+</body>
+</html>
