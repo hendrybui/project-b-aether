@@ -1,0 +1,15 @@
+[Unit]
+Description=Nightly AudioMass HTDemucs GPU warm-pool regression check
+Documentation=file:///mnt/Pandora/Project-B/check-demucs-gpu.sh
+# Runs the full warm-pool smoke (2 jobs + idle eviction). --nightly turns
+# environment-not-ready states (docker daemon down, a live pool from another
+# AudioMass instance) into logged skips (exit 0) instead of false alarms;
+# any real check failure still exits non-zero. On this box docker.service is
+# enabled at boot (systemctl is-enabled docker -> enabled), so at 03:30 the
+# daemon is up and the full regression runs; a SKIP only appears if the
+# daemon crashed overnight or a pool from another instance is live.
+
+[Service]
+Type=oneshot
+ExecStart=/mnt/Pandora/Project-B/check-demucs-gpu.sh --nightly
+Nice=10

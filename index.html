@@ -1,0 +1,503 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Aether • AI Synth</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  </head>
+  <body>
+    <div id="app">
+      <!-- Header -->
+      <header class="header">
+        <div class="header-left">
+          <div class="logo">
+            <div class="logo-mark">Æ</div>
+            <div>
+              <div class="logo-name">AETHER</div>
+              <div class="logo-tag">AI SYNTH</div>
+            </div>
+          </div>
+        </div>
+        <div class="header-center">
+          <div class="status">
+            <div class="led" id="audio-led"></div>
+            <span id="status-text">Ready — click anywhere or press a key to start audio</span>
+          </div>
+        </div>
+        <div class="header-right">
+          <button id="midi-btn" class="btn">MIDI: Not connected</button>
+          <button id="record-btn" class="btn record-btn">● REC</button>
+          <button id="stop-rec-btn" class="btn" style="display:none">■ STOP</button>
+        </div>
+      </header>
+
+      <!-- Main Synth Panel -->
+      <div class="main-grid">
+        <!-- Oscillators - Cleaner dedicated section -->
+        <section class="panel osc-panel">
+          <div class="panel-title">OSCILLATORS</div>
+          <div class="osc-grid">
+            <!-- Osc 1 -->
+            <div class="osc-card">
+              <div class="osc-header">OSC 1</div>
+              <div class="knob-row">
+                <div class="knob-wrap" data-param="osc1Wave">
+                  <canvas class="knob" data-knob="osc1Wave" width="68" height="68"></canvas>
+                  <div class="knob-label">WAVE</div>
+                </div>
+                <div class="knob-wrap" data-param="osc1Detune">
+                  <canvas class="knob" data-knob="osc1Detune" width="68" height="68"></canvas>
+                  <div class="knob-label">DETUNE</div>
+                </div>
+                <div class="knob-wrap" data-param="osc1Level">
+                  <canvas class="knob" data-knob="osc1Level" width="68" height="68"></canvas>
+                  <div class="knob-label">LEVEL</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Osc 2 -->
+            <div class="osc-card">
+              <div class="osc-header">OSC 2</div>
+              <div class="knob-row">
+                <div class="knob-wrap" data-param="osc2Wave">
+                  <canvas class="knob" data-knob="osc2Wave" width="68" height="68"></canvas>
+                  <div class="knob-label">WAVE</div>
+                </div>
+                <div class="knob-wrap" data-param="osc2Detune">
+                  <canvas class="knob" data-knob="osc2Detune" width="68" height="68"></canvas>
+                  <div class="knob-label">DETUNE</div>
+                </div>
+                <div class="knob-wrap" data-param="osc2Level">
+                  <canvas class="knob" data-knob="osc2Level" width="68" height="68"></canvas>
+                  <div class="knob-label">LEVEL</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Sub + Noise -->
+            <div class="osc-card sub-noise">
+              <div class="osc-header">SUB + NOISE</div>
+              <div class="knob-row">
+                <div class="knob-wrap" data-param="subLevel">
+                  <canvas class="knob" data-knob="subLevel" width="68" height="68"></canvas>
+                  <div class="knob-label">SUB</div>
+                </div>
+                <div class="knob-wrap" data-param="noiseLevel">
+                  <canvas class="knob" data-knob="noiseLevel" width="68" height="68"></canvas>
+                  <div class="knob-label">NOISE</div>
+                </div>
+                <div class="knob-wrap" data-param="noiseType">
+                  <canvas class="knob" data-knob="noiseType" width="68" height="68"></canvas>
+                  <div class="knob-label">TYPE</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Filter -->
+        <section class="panel">
+          <div class="panel-title">FILTER</div>
+          <div class="controls-grid">
+            <div class="control-col">
+              <div class="knob-row">
+                <div class="knob-wrap" data-param="filterCutoff"><canvas class="knob" data-knob="filterCutoff" width="72" height="72"></canvas><div class="knob-label">CUTOFF</div></div>
+                <div class="knob-wrap" data-param="filterRes"><canvas class="knob" data-knob="filterRes" width="72" height="72"></canvas><div class="knob-label">RES</div></div>
+              </div>
+            </div>
+            <div class="control-col">
+              <div class="select-row">
+                <label>TYPE</label>
+                <select id="filter-type">
+                  <option value="lowpass">Lowpass</option>
+                  <option value="bandpass">Bandpass</option>
+                  <option value="highpass">Highpass</option>
+                </select>
+              </div>
+              <div class="knob-row small">
+                <div class="knob-wrap" data-param="filterEnvAmt"><canvas class="knob" data-knob="filterEnvAmt" width="56" height="56"></canvas><div class="knob-label">ENV</div></div>
+                <div class="knob-wrap" data-param="filterAttack"><canvas class="knob" data-knob="filterAttack" width="56" height="56"></canvas><div class="knob-label">A</div></div>
+                <div class="knob-wrap" data-param="filterDecay"><canvas class="knob" data-knob="filterDecay" width="56" height="56"></canvas><div class="knob-label">D</div></div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Envelopes -->
+        <section class="panel">
+          <div class="panel-title">ENVELOPES</div>
+          <div class="env-grid">
+            <div>
+              <div class="control-label">AMP ENV</div>
+              <div class="knob-row small">
+                <div class="knob-wrap" data-param="ampAttack"><canvas class="knob" data-knob="ampAttack" width="56" height="56"></canvas><div class="knob-label">A</div></div>
+                <div class="knob-wrap" data-param="ampDecay"><canvas class="knob" data-knob="ampDecay" width="56" height="56"></canvas><div class="knob-label">D</div></div>
+                <div class="knob-wrap" data-param="ampSustain"><canvas class="knob" data-knob="ampSustain" width="56" height="56"></canvas><div class="knob-label">S</div></div>
+                <div class="knob-wrap" data-param="ampRelease"><canvas class="knob" data-knob="ampRelease" width="56" height="56"></canvas><div class="knob-label">R</div></div>
+              </div>
+            </div>
+            <div>
+              <div class="control-label">FILTER ENV</div>
+              <div class="knob-row small">
+                <div class="knob-wrap" data-param="filterEnvAttack"><canvas class="knob" data-knob="filterEnvAttack" width="56" height="56"></canvas><div class="knob-label">A</div></div>
+                <div class="knob-wrap" data-param="filterEnvDecay"><canvas class="knob" data-knob="filterEnvDecay" width="56" height="56"></canvas><div class="knob-label">D</div></div>
+                <div class="knob-wrap" data-param="filterEnvSustain"><canvas class="knob" data-knob="filterEnvSustain" width="56" height="56"></canvas><div class="knob-label">S</div></div>
+                <div class="knob-wrap" data-param="filterEnvRelease"><canvas class="knob" data-knob="filterEnvRelease" width="56" height="56"></canvas><div class="knob-label">R</div></div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Modulation + FX -->
+        <section class="panel">
+          <div class="panel-title">MOD + FX</div>
+          <div class="mod-grid">
+            <div class="control-col">
+              <div class="control-label">LFO 1</div>
+              <div class="knob-row small">
+                <div class="knob-wrap" data-param="lfo1Rate"><canvas class="knob" data-knob="lfo1Rate" width="56" height="56"></canvas><div class="knob-label">RATE</div></div>
+                <div class="knob-wrap" data-param="lfo1Amount"><canvas class="knob" data-knob="lfo1Amount" width="56" height="56"></canvas><div class="knob-label">AMT</div></div>
+              </div>
+              <div class="select-row">
+                <select id="lfo1-target">
+                  <option value="none">—</option>
+                  <option value="pitch">Pitch</option>
+                  <option value="cutoff">Filter</option>
+                  <option value="amp">Amp</option>
+                </select>
+              </div>
+            </div>
+            <div class="control-col">
+              <div class="control-label">DELAY</div>
+              <div class="knob-row small">
+                <div class="knob-wrap" data-param="delayTime"><canvas class="knob" data-knob="delayTime" width="56" height="56"></canvas><div class="knob-label">TIME</div></div>
+                <div class="knob-wrap" data-param="delayFeedback"><canvas class="knob" data-knob="delayFeedback" width="56" height="56"></canvas><div class="knob-label">FB</div></div>
+                <div class="knob-wrap" data-param="delayMix"><canvas class="knob" data-knob="delayMix" width="56" height="56"></canvas><div class="knob-label">MIX</div></div>
+              </div>
+            </div>
+            <div class="control-col">
+              <div class="control-label">REVERB</div>
+              <div class="knob-row small">
+                <div class="knob-wrap" data-param="reverbSize"><canvas class="knob" data-knob="reverbSize" width="56" height="56"></canvas><div class="knob-label">SIZE</div></div>
+                <div class="knob-wrap" data-param="reverbMix"><canvas class="knob" data-knob="reverbMix" width="56" height="56"></canvas><div class="knob-label">MIX</div></div>
+              </div>
+            </div>
+
+            <div class="control-col">
+              <div class="control-label">UNISON</div>
+              <div class="knob-row small">
+                <div class="knob-wrap" data-param="unisonCount"><canvas class="knob" data-knob="unisonCount" width="56" height="56"></canvas><div class="knob-label">VOICES</div></div>
+                <div class="knob-wrap" data-param="unisonDetune"><canvas class="knob" data-knob="unisonDetune" width="56" height="56"></canvas><div class="knob-label">SPREAD</div></div>
+              </div>
+            </div>
+
+            <div class="control-col">
+              <div class="control-label">DRIVE</div>
+              <div class="knob-row small">
+                <div class="knob-wrap" data-param="drive"><canvas class="knob" data-knob="drive" width="56" height="56"></canvas><div class="knob-label">AMT</div></div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ARP + TRANSPORT -->
+        <section class="panel arp-panel">
+          <div class="panel-title">ARPEGGIATOR + TRANSPORT</div>
+          <div class="arp-grid">
+            <div class="arp-main">
+              <button id="arp-toggle" class="btn">ARP OFF</button>
+              <div class="select-row" style="margin-top:6px">
+                <label>MODE</label>
+                <select id="arp-mode">
+                  <option value="up">Up</option>
+                  <option value="down">Down</option>
+                  <option value="updown">Up/Down</option>
+                  <option value="random">Random</option>
+                  <option value="order">As Played</option>
+                </select>
+              </div>
+              <div class="select-row">
+                <label>RATE</label>
+                <select id="arp-rate">
+                  <option value="4">1/4</option>
+                  <option value="8" selected>1/8</option>
+                  <option value="16">1/16</option>
+                  <option value="32">1/32</option>
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <div class="control-label">GATE / OCTAVES</div>
+              <div style="display:flex; gap:14px; align-items:center; margin:6px 0;">
+                <label style="font-size:10px;color:#5f6470">GATE</label>
+                <input type="range" id="arp-gate" min="0.25" max="0.95" step="0.01" value="0.7" style="width:80px" />
+                <label style="font-size:10px;color:#5f6470;margin-left:8px">OCT</label>
+                <input type="range" id="arp-oct" min="1" max="3" step="1" value="1" style="width:60px" />
+                <span id="arp-oct-val" style="font-variant-numeric:tabular-nums; min-width:14px">1</span>
+              </div>
+              <div class="arp-actions">
+                <button id="arp-hold-btn" class="btn small">HOLD: OFF</button>
+                <button id="arp-clear-btn" class="btn small">CLEAR</button>
+              </div>
+            </div>
+
+            <div class="transport">
+              <div class="control-label">TEMPO</div>
+              <div style="display:flex; align-items:center; gap:10px;">
+                <input type="range" id="tempo-slider" min="60" max="200" step="1" value="120" style="width:120px" />
+                <span id="tempo-display" style="min-width:42px; font-variant-numeric: tabular-nums;">120</span>
+                <span style="color:#5f6470">BPM</span>
+              </div>
+              <div class="ai-hint" style="margin-top:4px">Arp + generative timing</div>
+            </div>
+          </div>
+        </section>
+
+        <!-- AI PANEL -->
+        <section class="panel ai-panel">
+          <div class="panel-title">AI CREATIVE TOOLS</div>
+          
+          <div class="ai-section">
+            <div class="ai-label">PROMPT → PATCH</div>
+            <div class="ai-input-row">
+              <input id="prompt-input" type="text" placeholder="e.g. warm analog pad, sharp acid bass, glassy bell pluck..." />
+              <button id="gen-patch-btn" class="btn primary">GENERATE</button>
+            </div>
+            <div class="ai-actions">
+              <button id="mutate-btn" class="btn">MUTATE SOUND</button>
+              <button id="random-btn" class="btn">SURPRISE ME</button>
+              <button id="ollama-btn" class="btn">USE LOCAL LLM (OLLAMA)</button>
+            </div>
+            <div id="ai-status" class="ai-status"></div>
+          </div>
+
+          <div class="ai-section">
+            <div class="ai-label">GENERATIVE MELODY</div>
+            <div class="ai-row">
+              <select id="gen-style">
+                <option value="dreamy">Dreamy Pad</option>
+                <option value="acid">Acid Bassline</option>
+                <option value="pluck">Plucky Arp</option>
+                <option value="stabs">Techno Stabs</option>
+                <option value="ethereal">Ethereal</option>
+              </select>
+              <button id="gen-melody-btn" class="btn">GENERATE &amp; PLAY</button>
+              <button id="stop-melody-btn" class="btn">STOP</button>
+            </div>
+            <div class="ai-hint">Uses current patch + musical intelligence.</div>
+          </div>
+
+          <div class="ai-section">
+            <div class="ai-label">CHORDS (AI)</div>
+            <div class="ai-row">
+              <button id="gen-chords-btn" class="btn">GENERATE CHORDS</button>
+              <button id="stop-chords-btn" class="btn">STOP CHORDS</button>
+              <span class="ai-hint" style="margin-left:10px">Plays triads in current key/scale</span>
+            </div>
+          </div>
+
+          <!-- NEW: Deeper LLM integration for the Aether + AudioMass pair -->
+          <div class="ai-section am-bridge">
+            <div class="ai-label">LLM FOR AUDIOMASS / GENERATE VARIATIONS FOR EDITOR</div>
+            <div class="ai-row" style="margin-bottom:6px">
+              <input id="am-base-url" type="text" value="http://localhost:5055" style="width:168px; font-size:11px" title="AudioMass API base (use :5055 direct, or adjust for your proxy e.g. http://localhost/mass if API is mounted there)" />
+              <button id="am-scan-btn" class="btn small" title="Probe recent jobs via AudioMass /api (active + known recent manifests) for context like BPM/key/stems. Simple, no hard dependencies.">Scan recent job</button>
+              <span id="am-context-hint" class="ai-hint" style="color:#a78bfa; max-width:280px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:inline-block; vertical-align:middle;" title="Loaded AudioMass context will be fed to LLM for relevant suggestions"></span>
+            </div>
+            <!-- Which separation engine AudioMass will use (from
+                 /api/diagnostics: rocm_container vs cpu_worker, plus the
+                 measured fixed overhead of the last container run). -->
+            <div id="am-engine" style="display:none; font-size:10px; color:#9ca3af; margin:0 0 6px 0; align-items:center; gap:6px;"></div>
+            <!-- Live separation job progress (polled from /api/jobs/active;
+                 renders the plugin pipeline's per-phase messages: separating
+                 chunks, analyzing stems, generating waveforms). -->
+            <div id="am-job-row" style="display:none; align-items:center; gap:8px; margin:0 0 6px 0;">
+              <div style="flex:1; min-width:0;">
+                <div style="display:flex; justify-content:space-between; gap:8px; font-size:10px; color:#a78bfa;">
+                  <span id="am-job-label">AUDIOMASS JOB</span>
+                  <span id="am-job-message" style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"></span>
+                </div>
+                <div style="height:6px; background:#333; border-radius:3px; margin-top:4px; overflow:hidden;">
+                  <div id="am-job-bar" style="width:0%; height:100%; background:linear-gradient(90deg,#e94560,#0f3460); transition:width 0.4s;"></div>
+                </div>
+              </div>
+              <button id="am-job-cancel" class="btn danger small" style="display:none;">CANCEL</button>
+            </div>
+            <div class="ai-actions">
+              <button id="am-var-btn" class="btn primary" title="Given current Aether patch (+ optional user prompt + recent AudioMass job), ask Ollama for a ready-to-use variation idea + stem/layer/effects suggestions optimized for pasting into AudioMass multitrack.">Generate variation prompt for editor</button>
+              <button id="am-desc-btn" class="btn" title="Ask local LLM to describe the current generated sound in language useful as clip notes or project context inside AudioMass.">Describe sound for AudioMass project</button>
+            </div>
+            <textarea id="am-llm-output" class="am-output" placeholder="LLM output (variation ideas, stem suggestions, processing tips, or sonic description) will appear here. All via local Ollama. Text is designed to be copied/saved and used directly in AudioMass or other editors." readonly></textarea>
+            <div class="ai-actions" style="margin-top:4px">
+              <button id="am-copy-btn" class="btn small">Copy</button>
+              <button id="am-save-btn" class="btn small">Save .txt</button>
+              <button id="am-clear-btn" class="btn small">Clear</button>
+              <span class="ai-hint" style="margin-left:6px">Output text is copy-paste friendly for AudioMass track notes, project docs, or prompts to other tools.</span>
+            </div>
+            <div id="am-status" class="ai-status"></div>
+          </div>
+
+          <!-- HIGH PRIORITY: Direct AudioMass handoff from sequencer patterns -->
+          <div class="ai-section">
+            <div class="ai-label">BOUNCE TO AUDIOMASS (High Priority Handoff)</div>
+            <div class="ai-row">
+              <button id="bounce-full-btn" class="btn primary">Full Mix WAV</button>
+              <button id="bounce-drums-btn" class="btn">Drums Stem</button>
+              <button id="bounce-synth-btn" class="btn">Synth Stem</button>
+            </div>
+            <div class="ai-hint">Renders the current sequencer pattern (full length + tail) as high-quality WAV. Stems allow separate editing in AudioMass multitrack. Download named for easy drop into audiomass/jobs/_incoming/ or Project-B/exports/ .</div>
+
+            <!-- Load back from AudioMass for preview / noise integration (closes shared assets gap) -->
+            <div class="ai-row" style="margin-top:8px;">
+              <input type="file" id="load-audiomass-wav" accept=".wav,audio/wav" style="max-width:220px;" />
+              <button id="play-loaded-wav" class="btn small">Play Preview</button>
+              <button id="use-as-noise-boost" class="btn small">Use as Noise Boost</button>
+            </div>
+            <div class="ai-hint" style="font-size:10px;">Load a WAV exported from AudioMass (or any) to preview alongside Aether or boost the noise layer. Great for round-trip workflows.</div>
+          </div>
+        </section>
+
+        <!-- Visualizer + Master -->
+        <section class="panel viz-panel">
+          <div class="panel-title">VISUALIZER + MASTER</div>
+          <canvas id="scope" width="520" height="110"></canvas>
+          <div class="master-row">
+            <div class="master-control">
+              <label>MASTER</label>
+              <input type="range" id="master-vol" min="0" max="1" step="0.01" value="0.8" />
+            </div>
+            <div class="master-info">
+              <div>Voices: <span id="voice-count">0</span>/12</div>
+              <div id="current-key">Key: C Minor</div>
+            </div>
+            <button id="panic-btn" class="btn danger">PANIC</button>
+          </div>
+        </section>
+      </div>
+
+      <!-- Factory Presets -->
+      <div class="presets-bar">
+        <span class="presets-label">PRESETS</span>
+        <button class="btn preset-btn" data-preset="init">Init</button>
+        <button class="btn preset-btn" data-preset="warmpad">Warm Pad</button>
+        <button class="btn preset-btn" data-preset="acid">Acid Bass</button>
+        <button class="btn preset-btn" data-preset="brightlead">Bright Lead</button>
+        <button class="btn preset-btn" data-preset="plucky">Plucky Bell</button>
+        <button class="btn preset-btn" data-preset="darkdrone">Dark Drone</button>
+        <button class="btn preset-btn" data-preset="noisy">Noisy Texture</button>
+        <button class="btn preset-btn" data-preset="evolve" style="margin-left:10px">EVOLVE</button>
+      </div>
+      <!-- MANYAO DJ Mixset — Henry's Signature Sounds -->
+      <div class="presets-bar" style="margin-top:4px">
+        <span class="presets-label">🎵 MY MIXSET</span>
+        <button class="btn preset-btn" data-preset="my-bass" style="background:#1a3a5c">My Bass</button>
+        <button class="btn preset-btn" data-preset="my-kick" style="background:#1a3a5c">My Kick</button>
+        <button class="btn preset-btn" data-preset="my-hat" style="background:#1a3a5c">My Hat</button>
+        <button class="btn preset-btn" data-preset="my-pad" style="background:#1a3a5c">My Pad</button>
+        <button class="btn preset-btn" data-preset="my-lead" style="background:#1a3a5c">My Lead</button>
+        <button class="btn preset-btn" data-preset="manyao-dark" style="background:#2a1a3c">Manyao Dark</button>
+      </div>
+
+      <!-- Keyboard -->
+      <section class="keyboard-section">
+        <div class="keyboard-header">
+          <div>PLAYBOARD</div>
+          <div class="keyboard-info">Click keys • A-L / Q-P computer keys • Web MIDI supported</div>
+          <div class="key-controls">
+            <label>Octave</label>
+            <button id="oct-down" class="btn small">−</button>
+            <span id="octave-display">3</span>
+            <button id="oct-up" class="btn small">+</button>
+            <label style="margin-left:16px">Scale</label>
+            <select id="scale-select">
+              <option value="minor">Minor</option>
+              <option value="major">Major</option>
+              <option value="dorian">Dorian</option>
+              <option value="phrygian">Phrygian</option>
+              <option value="mixolydian">Mixolydian</option>
+              <option value="pentatonic">Pentatonic</option>
+            </select>
+            <label style="margin-left:12px">Root</label>
+            <select id="root-select">
+              <option value="0">C</option>
+              <option value="1">C#</option>
+              <option value="2">D</option>
+              <option value="3">D#</option>
+              <option value="4">E</option>
+              <option value="5">F</option>
+              <option value="6">F#</option>
+              <option value="7">G</option>
+              <option value="8">G#</option>
+              <option value="9">A</option>
+              <option value="10">A#</option>
+              <option value="11">B</option>
+            </select>
+          </div>
+        </div>
+        <div id="piano" class="piano"></div>
+      </section>
+
+      <!-- STEP SEQUENCER + DRUMS -->
+      <section class="sequencer-section">
+        <div class="seq-header">
+          <div>
+            <span class="seq-title">STEP SEQUENCER</span>
+            <span class="seq-info">Drum machine + melodic steps • synced to tempo</span>
+          </div>
+          <div class="seq-controls">
+            <button id="seq-play" class="btn">▶ PLAY</button>
+            <button id="seq-stop" class="btn">■ STOP</button>
+            <button id="seq-clear" class="btn small">CLEAR ALL</button>
+
+            <label style="margin-left:12px">LEN</label>
+            <select id="seq-length">
+              <option value="8">8</option>
+              <option value="16" selected>16</option>
+              <option value="32">32</option>
+            </select>
+
+            <label>SWING</label>
+            <input type="range" id="seq-swing" min="0" max="0.5" step="0.01" value="0" style="width:70px" />
+            <span id="swing-val" style="font-size:10px;min-width:24px">0%</span>
+          </div>
+        </div>
+
+        <div id="seq-grid" class="seq-grid"></div>
+
+        <div class="seq-ai">
+          <div class="ai-label">AI PATTERN GENERATORS</div>
+          <div class="seq-ai-row">
+            <button id="gen-drums-techno" class="btn small">Techno Drums</button>
+            <button id="gen-drums-house" class="btn small">House</button>
+            <button id="gen-drums-hiphop" class="btn small">HipHop</button>
+            <button id="gen-drums-break" class="btn small">Breakbeat</button>
+            <button id="gen-euclid-kick" class="btn small">Euclid Kick</button>
+
+            <span style="width:16px"></span>
+
+            <button id="gen-bassline" class="btn small">Bassline</button>
+            <button id="gen-stabs" class="btn small">Stabs</button>
+            <button id="gen-arp" class="btn small">Arp</button>
+            <button id="gen-mutate-seq" class="btn small">MUTATE</button>
+            <button id="gen-random-seq" class="btn small">RANDOM</button>
+          </div>
+          <div class="ai-hint">Click steps to edit • velocity cycles on click (off → hard → med → soft)</div>
+        </div>
+      </section>
+
+      <footer class="footer">
+        <div>Aether — local AI music synth • runs in browser • connect a MIDI controller for best experience</div>
+        <div class="footer-links">
+          <button id="save-preset-btn" class="btn small">Save Preset</button>
+          <button id="load-preset-btn" class="btn small">Load Last</button>
+          <button id="export-midi-btn" class="btn small">Export MIDI Clip</button>
+        </div>
+      </footer>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

@@ -1,0 +1,47 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# --- Project-B specific ---
+# audiomass is its own repo: https://github.com/hendrybui/audiomass-aegis
+# (keep the checkout on disk; don't track it here)
+audiomass/
+
+# Shared handoff folders (auto-created by the launcher)
+exports/
+samples/
+
+# Sibling experiment/archival trees — not part of this repo
+backups/
+dj_toolkit/
+music-tools/
+splinter-x/
+PROJECT_X-Splinter/
+
+# Agent/tool state dirs
+.freebuff/
+.goose/
+.hermes/
+.zcode/
+.csm_setup_*

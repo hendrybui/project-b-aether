@@ -1,0 +1,21 @@
+{
+  "name": "aether",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Aether — AI-assisted music synthesizer (web synth + creative AI tools)",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "test": "node --test --test-concurrency=1 tests/*.test.mjs"
+  },
+  "devDependencies": {
+    "playwright-core": "^1.62.1",
+    "typescript": "~6.0.2",
+    "vite": "^8.0.12"
+  },
+  "dependencies": {
+    "tone": "^15.0.4"
+  }
+}

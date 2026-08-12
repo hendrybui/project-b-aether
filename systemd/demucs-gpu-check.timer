@@ -1,0 +1,12 @@
+[Unit]
+Description=Nightly AudioMass HTDemucs GPU warm-pool check timer
+
+[Timer]
+# 03:30 local, every day. Persistent=true catches the check up after the
+# machine was off or asleep at the scheduled time.
+OnCalendar=*-*-* 03:30:00
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

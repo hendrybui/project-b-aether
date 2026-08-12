@@ -1,0 +1,94 @@
+
+
+## How to start the app
+
+```bash
+cd /mnt/Pandora/Project-B
+npm run dev          # http://localhost:5173
+```
+
+Or via the unified launcher:
+```bash
+./run-aether-with-audiomass.sh start   # Aether + AudioMass + Caddy proxy
+```
+
+## Manual: how to use New Aether
+
+### 1. First-run setup
+- Open `http://localhost:5173`. Audio is suspended (browser autoplay policy).
+- **Click anywhere** or **press any key on the on-screen piano / computer keyboard** to activate audio. Status text at top center changes from *"Ready — click anywhere..."* to *"Audio engine running — play!"*.
+
+### 2. Play a sound
+- **Piano keys (bottom of page)**: click any key. Computer keys `Z S X D C V G B H N J M` = lower octave, `Q 2 W 3 E R 5 T 6 Y 7 U` = upper octave. Try a "Warm Pad" preset first.
+- **Octave** controls (`−` / `+`) shift both the piano and the sequencer's melodic lane.
+- **Scale / Root** select: quantizes piano highlights and sequencer outputs to your chosen scale (C minor by default).
+
+### 3. Shape the sound — knobs (top center panels)
+- **Oscillators** — OSC 1 (WAVE/DETUNE/LEVEL), OSC 2, SUB, NOISE
+- **Filter** — CUTOFF (0–1), RES, TYPE (lowpass/bandpass/highpass), ENV amount, A/D envelope
+- **Envelopes** — AMP A/D/S/R, FILTER A/D/S/R
+- **Mod + FX** — LFO (RATE/AMT/TARGET), DELAY (TIME/FB/MIX), REVERB (SIZE/MIX), UNISON (VOICES/SPREAD), DRIVE (AMT)
+- **Visualizer** at the right shows the master output waveform; **MASTER** slider is the final volume; **PANIC** stops everything.
+
+### 4. Arpeggiator + Tempo
+- Pick **MODE** (Up / Down / Up-Down / Random / As Played), **RATE** (1/4, 1/8, 1/16, 1/32), then click **ARP OFF** to turn it on. Notes you play get added to the pool.
+- **TEMPO** slider drives the global clock (used by sequencer + arp).
+
+### 5. Step Sequencer (bottom panel)
+- **▶ PLAY** starts the pattern (uses the global tempo). The current-step column is highlighted.
+- **LEN** = 8 / 16 / 32 steps. **SWING** = 0–50%.
+- **Click any cell** to cycle: off → hard → med → soft. **Right-click** to clear.
+- **Drums (top 5 rows)**: KICK, SNARE, CH, OH, PERC. Each triggers the corresponding drum voice at the scheduled step.
+- **SYN (last row)**: melodic synth lane — each cell stores a specific MIDI note. Click cells; right-click clears. Pitch is shown via the cell's data — to inspect, look at the keyboard lighting up on playback.
+
+### 6. AI generators (sequencer section)
+- **Techno Drums / House / HipHop / Breakbeat** — write a full style in one click (drums only).
+- **Euclid Kick** — distributes 5 evenly-spaced hits across the kick track.
+- **Bassline / Stabs / Arp** — generate the melodic (SYN) lane in your current scale and root. Editable afterwards.
+- **MUTATE / RANDOM** — randomize the entire pattern.
+
+### 7. AI Creative Tools (top right)
+- **PROMPT → PATCH**: type e.g. *"warm analog pad with space"*, *"sharp acid bass"*, *"glassy bell pluck"*, click GENERATE. Tries local Ollama (if running on `:11434`); falls back to the local keyword mapper.
+- **MUTATE SOUND** — small variation on the current patch.
+- **SURPRISE ME** — random preset starting point.
+- **GENERATIVE MELODY**: pick style (Dreamy / Acid / Pluck / Stabs / Ethereal), click GENERATE & PLAY → writes a melodic phrase into the SYN lane (loops, editable).
+- **GENERATE CHORDS / STOP CHORDS** — one-shot triadic progression using your current root/scale/octave.
+
+### 8. Presets (just above the piano)
+- **Init / Warm Pad / Acid Bass / Bright Lead / Plucky Bell / Dark Drone / Noisy Texture** — preset styles.
+- **EVOLVE** — mutate + bias toward a random flavor word.
+- **MY MIXSET** — your saved DJ signature sounds (bass / kick / hat / pad / lead / Manyao dark).
+- **Save Preset / Load Last** — `localStorage` round-trip.
+- **Export MIDI Clip** — download a tiny MIDI of a generated phrase (handy for DAWs).
+
+### 9. Recording + Bounce to AudioMass
+- **● REC** records master output → downloads a `.webm` AND a real `.wav` (the .wav drops straight into AudioMass).
+- **Full Mix WAV / Drums Stem / Synth Stem** — Bounce the current sequencer pattern as a WAV, properly summed for one full cycle + tail. Output filename is `aether-{type}-to-audiomass.wav`. Drop into `audiomass/jobs/_incoming/` for instant multitrack import.
+- Drums stem mutes the synth lane, synth stem mutes the drums, full mix uses everything.
+
+### 10. Web MIDI
+- **MIDI button** (top right) shows the first connected MIDI device. Plug in a controller, click anywhere to start audio, then play. CC #64 (sustain pedal) works. Spacebar also toggles sustain.
+
+### 11. AudioMass LLM Bridge (in AI panel)
+- **AudioMass API base URL** — defaults to `http://localhost:5055`.
+- **Scan recent job** — fetches BPM/key/stems from the last AudioMass session for context.
+- **Generate variation prompt for editor** — asks local Ollama for a variation idea based on the current Aether patch + AudioMass context (or uses a local fallback).
+- **Describe sound for AudioMass project** — sonic description useful as clip notes.
+- **Copy / Save .txt / Clear** — output text is ready to paste into AudioMass project notes.
+
+### 12. Panic / shortcuts
+- **PANIC button** — releases everything.
+- **Escape** — same as panic.
+- **Space** (when not in an input) — toggle sustain pedal.
+
+---
+
+## What I did NOT verify (your job — runtime)
+- Audio quality (timbre, level, transient response of new drums)
+- Sequencer timing precision (was drift-prone before; should now be sample-accurate via Transport)
+- Whether the scale/root quantizer for piano highlights feels right
+- Whether the Ollama prompts decode the patches well
+- Whether the WAV bounce loads cleanly into AudioMass
+- Whether all factory presets sound musical with the new engine
+
+The build is green — launch it and try the flow. Tell me what sounds off and I'll iterate.
