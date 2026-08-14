@@ -15,7 +15,6 @@ export default defineConfig({
         '**/dj_toolkit/**',
         '**/music-tools/**',
         '**/PROJECT_X-Splinter/**',
-        '**/Project-B/**',
         '**/backups/**',
         '**/dist/**',
         '**/exports/**',

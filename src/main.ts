@@ -543,16 +543,16 @@ function setupAI(): void {
     await ensureAudio();
     const text = promptInput.value.trim() || 'beautiful evolving texture';
     const status = document.getElementById('ai-status')!;
-    status.textContent = 'Asking local LLM (Ollama)...';
+    status.textContent = 'Asking local LLM (GPU: llama.cpp)...';
     const result = await describeToPatchWithOllama(text);
     if (result) {
       const clean: Partial<SynthParams> = {};
       for (const k of Object.keys(result)) {
         if (k in defaultParams) (clean as any)[k] = result[k];
       }
-      applyPatch(clean, `Ollama: ${text}`);
+      applyPatch(clean, `Local LLM: ${text}`);
     } else {
-      status.textContent = 'Ollama not responding — using local generator instead';
+      status.textContent = 'Local LLM not responding — using local generator instead';
       const { params } = promptToPatch(text);
       applyPatch(params, text);
       setTimeout(() => { status.textContent = ''; }, 1800);
