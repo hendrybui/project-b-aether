@@ -37,6 +37,9 @@ backups/
 splinter-x/
 PROJECT_X-Splinter/
 
+# Seeded browser config (contains the local 9router gateway key)
+public/llm-seed.html
+
 # Agent/tool state dirs
 .freebuff/
 .goose/
