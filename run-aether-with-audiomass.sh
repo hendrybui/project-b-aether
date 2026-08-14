@@ -30,6 +30,7 @@ AUDIOMASS_DIR="$PROJECT_ROOT/audiomass"
 DJ_TOOLKIT_DIR="$PROJECT_ROOT/dj_toolkit"
 MUSIC_TOOLS_DIR="$PROJECT_ROOT/music-tools"
 MELODY_SUITE_DIR="$PROJECT_ROOT/melody-suite"
+LLAMA_GPU_SCRIPT="$PROJECT_ROOT/start-llama-gpu.sh"
 CADDY_CONFIG="/mnt/Pandora/caddy/Caddyfile"
 
 AETHER_PORT=5173
@@ -337,6 +338,25 @@ start_melody_suite() {
   log "   Direct: http://localhost:$MELODY_SUITE_PORT  (editor: /tools/melody-sheet/interactive-sheet-music-editor-playback)"
 }
 
+start_llama_gpu() {
+  # Aether's local LLM on the GPU (Vulkan llama.cpp — see start-llama-gpu.sh).
+  # Soft: if the binary/model/drive are missing we log and continue — Aether
+  # falls back to Ollama (CPU) then the local generators.
+  if [ ! -x "$LLAMA_GPU_SCRIPT" ]; then
+    log "   start-llama-gpu.sh not found — GPU model server skipped (Aether will use Ollama fallback)."
+    return 1
+  fi
+  log "→ Starting GPU LLM server (llama.cpp Vulkan, Qwen3-8B) ..."
+  "$LLAMA_GPU_SCRIPT" start 2>&1 | while read -r l; do log "   $l"; done
+}
+
+stop_llama_gpu() {
+  if [ -x "$LLAMA_GPU_SCRIPT" ]; then
+    log "Stopping GPU LLM server..."
+    "$LLAMA_GPU_SCRIPT" stop 2>&1 | while read -r l; do log "   $l"; done
+  fi
+}
+
 stop_aether() {
   log "Stopping Aether..."
   if [ -f "$AETHER_PIDFILE" ]; then
@@ -424,8 +444,9 @@ stop_all() {
   stop_dj_toolkit
   stop_music_tools
   stop_melody_suite
+  stop_llama_gpu
   stop_caddy
-  log "All (Aether + AudioMass + DJ Toolkit + Music Tools + Melody Suite + Caddy) stopped."
+  log "All (Aether + AudioMass + DJ Toolkit + Music Tools + Melody Suite + GPU LLM + Caddy) stopped."
 }
 
 status() {
@@ -570,13 +591,14 @@ case "${1:-start}" in
   start)
     guard_pandora_mount
     ensure_caddy
+    start_llama_gpu
     start_aether_dev
     start_audiomass
     start_dj_toolkit
     start_music_tools
     start_melody_suite
     echo ""
-    log "Aether + AudioMass + DJ Toolkit + Music Tools + Melody Suite + Caddy ready — the full creative stack."
+    log "Aether + AudioMass + DJ Toolkit + Music Tools + Melody Suite + GPU LLM + Caddy ready — the full creative stack."
     log "Recommended unified access (Caddy on :80):"
     log "  http://localhost/aether   → Aether (AI music generation + sequencer, hot reload)"
     log "  http://localhost/mass     → AudioMass (multitrack waveform editor)"
@@ -584,6 +606,7 @@ case "${1:-start}" in
     log "  http://localhost:5001     → DJ Toolkit (stems / BPM-key / vocal remover / MP3→MIDI)"
     log "  http://localhost:8091     → Music Tools (melody generator / audio→sheet)"
     log "  http://localhost:5000     → Melody Suite (interactive sheet editor / SATB harmony / MP3→MIDI)"
+    log "  http://localhost:11435    → GPU LLM server (llama.cpp Vulkan — Aether AI on the RX 580)"
     log ""
     log "Handoff (no gaps): In Aether use BOUNCE buttons for stems/full WAV (named aether-*-to-audiomass.wav)."
     log "  Drop to $PROJECT_ROOT/exports/ or audiomass/jobs/_incoming/ for instant import."
@@ -604,6 +627,7 @@ case "${1:-start}" in
     stop_all
     sleep 1
     ensure_caddy
+    start_llama_gpu
     start_aether_dev
     start_audiomass
     start_dj_toolkit
@@ -632,7 +656,7 @@ case "${1:-start}" in
   *)
     echo "Usage: $0 {start|stop|restart|status|build-aether|caddy-restart}"
     echo ""
-    echo "  start          Start Caddy (smart) + Aether dev + AudioMass + DJ Toolkit + Music Tools + Melody Suite"
+    echo "  start          Start Caddy (smart) + GPU LLM + Aether dev + AudioMass + DJ Toolkit + Music Tools + Melody Suite"
     echo "  stop           Stop everything + our Caddy instance"
     echo "  restart        stop + start"
     echo "  status         Show pids, logs tails, listeners, quick curl tests against proxy"

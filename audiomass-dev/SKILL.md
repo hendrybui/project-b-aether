@@ -59,6 +59,12 @@ Operational knowledge for working on the AudioMass fork at `audiomass/` inside t
 - Pool semantics: warm reuse across jobs, cancellation kills the worker (verify the process is gone — a cancelled job must not burn CPU), idle eviction releases the GPU after N minutes, job counts + last-job stats persist across server restarts.
 - Nightly regression: systemd timer runs the check; docker enabled at boot so the net actually runs.
 
+## Aether GPU LLM server (llama.cpp Vulkan)
+
+- Aether's AI features now run on the RX 580 via Jan AI's Vulkan llama.cpp build: `start-llama-gpu.sh {start|status|stop|restart}` at the repo root. Server on `127.0.0.1:11435` (OpenAI-compatible), model `Jan_ai/llamacpp/models/Qwen3-8B-Q4_K_M.gguf` (full 5.0 GB copy — the 1 GB one in `gguf-models/` is truncated), `-ngl 99 --reasoning-budget 0 -c 4096`. ~30 tok/s vs ~4 on CPU.
+- `src/ai/ollama.ts` tries the GPU server first, falls back to Ollama (:11434, CPU), then returns null → local generators. `start-llama-gpu.sh` is wired into `run-aether-with-audiomass.sh start/restart/stop` (soft-fail).
+- No VRAM clash with demucs: Qwen3-8B Q4 ≈ 4.9 GB + htdemucs ≈ 2-3 GB both fit the 7.75 GiB RX 580.
+
 ## UI layout
 
 - **Main editor** = viewing/playback + metadata. On load the BPM scan runs automatically and the result shows as a badge **inside the top toolbar** (`updateBpmBadge` in multitrack.js: appends an inline-block gold chip to `.pk_tb`, 13px/600 — it must NOT go over the waveform; the user rejected an overlay that covered the timeline). Two-chip layout: a name chip (max 220px, ellipsis, `title` hover shows the full name) + a BPM/key chip that NEVER truncates — so a long file name can't push the tempo info out of view. Text: name chip + `♪ {bpm} BPM · {key} · auto` — the file name comes from `app.engine.file_name` (engine.js captures it in `LoadSample` → `'test.mp3'`, `LoadFile` → `e.files[0].name`, `LoadArrayBuffer` → `e.name`; capped at 240px with ellipsis). The badge is **hidden while MultiTrack is on** (`updateBpmBadge` early-returns on `.pk_mt_on`; `Toggle` calls it so it returns when switching back). **No grid in the main editor — ever** (grid renders only inside MultiTrack's timeline).

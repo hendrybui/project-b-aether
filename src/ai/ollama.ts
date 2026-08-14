@@ -1,5 +1,72 @@
-// Local LLM integration via Ollama (http://localhost:11434)
-// This makes the "AI plugin" actually feel intelligent.
+// Local LLM integration. Primary backend: the llama.cpp server on the GPU
+// (Vulkan, http://127.0.0.1:11435 — started by ./start-llama-gpu.sh with Jan
+// AI's Vulkan build + Qwen3-8B GGUF, ~30 tok/s vs ~4 on the 4-core CPU).
+// Fallback: Ollama on :11434. If both are down we return null and the callers
+// degrade gracefully to the local keyword/scale generators.
+
+const LLAMA_CPP_URL = 'http://127.0.0.1:11435/v1/chat/completions';
+const OLLAMA_URL = 'http://localhost:11434/api/chat';
+
+interface ChatMsg {
+  role: string;
+  content: string;
+}
+
+/**
+ * Try the GPU llama.cpp server first, then Ollama. Returns the assistant text
+ * or null if neither backend answered. Never throws.
+ */
+async function chatCompletion(
+  messages: ChatMsg[],
+  opts: { temperature?: number; top_p?: number } = {}
+): Promise<string | null> {
+  const temperature = opts.temperature ?? 0.75;
+  const top_p = opts.top_p ?? 0.9;
+
+  // 1) GPU llama.cpp server (OpenAI-compatible endpoint)
+  try {
+    const res = await fetch(LLAMA_CPP_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        messages,
+        stream: false,
+        temperature,
+        top_p,
+        max_tokens: 2048,
+      }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      const content = data?.choices?.[0]?.message?.content;
+      if (typeof content === 'string' && content.trim()) return content.trim();
+    }
+  } catch (err) {
+    console.warn('llama.cpp (GPU) call failed:', err);
+  }
+
+  // 2) Ollama (CPU) fallback
+  try {
+    const res = await fetch(OLLAMA_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'llama3.1:8b', // good balance; user can have others
+        messages,
+        stream: false,
+        options: { temperature, top_p },
+      }),
+    });
+    if (!res.ok) throw new Error('Ollama request failed: ' + res.status);
+    const data = await res.json();
+    const content = data?.message?.content || data?.response || '';
+    const cleaned = content.trim();
+    return cleaned || null;
+  } catch (err) {
+    console.warn('Ollama call failed:', err);
+    return null;
+  }
+}
 
 export async function describeToPatchWithOllama(prompt: string): Promise<any> {
   const system = `You are an expert sound designer for a subtractive synthesizer.
@@ -24,37 +91,25 @@ delayMix, reverbMix (0-1)
 
 Respond with ONLY the JSON. No explanation.`;
 
-  try {
-    const res = await fetch('http://localhost:11434/api/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: 'llama3.1:8b', // good balance; user can have others
-        messages: [
-          { role: 'system', content: system },
-          { role: 'user', content: prompt }
-        ],
-        stream: false,
-        options: { temperature: 0.75, top_p: 0.9 }
-      }),
-    });
+  const content = await chatCompletion(
+    [
+      { role: 'system', content: system },
+      { role: 'user', content: prompt }
+    ],
+    { temperature: 0.75, top_p: 0.9 }
+  );
+  if (!content) return null;
 
-    if (!res.ok) throw new Error('Ollama request failed: ' + res.status);
-
-    const data = await res.json();
-    const content = data?.message?.content || data?.response || '';
-
-    // Try to extract JSON
-    const jsonMatch = content.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      const parsed = JSON.parse(jsonMatch[0]);
-      return parsed;
+  // Try to extract JSON
+  const jsonMatch = content.match(/\{[\s\S]*\}/);
+  if (jsonMatch) {
+    try {
+      return JSON.parse(jsonMatch[0]);
+    } catch {
+      return null;
     }
-    return null;
-  } catch (err) {
-    console.warn('Ollama call failed:', err);
-    return null;
   }
+  return null;
 }
 
 // ===== AudioMass Bridge: Deeper LLM use for the Aether + AudioMass pair =====
@@ -102,29 +157,11 @@ TASK: "Describe this generated audio for use in AudioMass project".
     userMsg += 'Produce the rich description + usage tips for the editor now.';
   }
 
-  try {
-    const res = await fetch('http://localhost:11434/api/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: 'llama3.1:8b',
-        messages: [
-          { role: 'system', content: system },
-          { role: 'user', content: userMsg }
-        ],
-        stream: false,
-        options: { temperature: 0.8, top_p: 0.92 }
-      }),
-    });
-
-    if (!res.ok) throw new Error('Ollama request failed: ' + res.status);
-
-    const data = await res.json();
-    const content = data?.message?.content || data?.response || '';
-    const cleaned = content.trim();
-    return cleaned || null;
-  } catch (err) {
-    console.warn('Ollama AudioMass call failed:', err);
-    return null;
-  }
+  return chatCompletion(
+    [
+      { role: 'system', content: system },
+      { role: 'user', content: userMsg }
+    ],
+    { temperature: 0.8, top_p: 0.92 }
+  );
 }
