@@ -58,6 +58,18 @@ log() {
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
 }
 
+# Guard: every path this script touches (and docker's data-root, the Caddy
+# config, the systemd units) assumes the Pandora drive is mounted at
+# /mnt/Pandora. If the mount moved (udisks auto-mount, fstab edit, drive
+# crash), starting would silently half-break everything. Fail loudly instead.
+guard_pandora_mount() {
+  if ! "$PROJECT_ROOT/check-pandora-mount.sh" 2>&1; then
+    log "ERROR: Pandora drive is not at /mnt/Pandora — refusing to start."
+    log "Run the fix printed above (or /usr/local/bin/check-pandora-mount.sh), then retry."
+    exit 1
+  fi
+}
+
 check_caddy_installed() {
   if ! command -v caddy >/dev/null 2>&1; then
     log "ERROR: caddy not found in PATH."
@@ -556,6 +568,7 @@ status() {
 
 case "${1:-start}" in
   start)
+    guard_pandora_mount
     ensure_caddy
     start_aether_dev
     start_audiomass
@@ -587,6 +600,7 @@ case "${1:-start}" in
     ;;
   restart)
     log "Restarting everything..."
+    guard_pandora_mount
     stop_all
     sleep 1
     ensure_caddy

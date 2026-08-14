@@ -11,5 +11,9 @@ Documentation=file:///mnt/Pandora/Project-B/check-demucs-gpu.sh
 
 [Service]
 Type=oneshot
+# Guard first (root-fs copy, so it runs even if the drive isn't mounted):
+# if the Pandora drive moved off /mnt/Pandora, fail the unit loudly instead
+# of ExecStart missing / silently skipping.
+ExecStartPre=/usr/local/bin/check-pandora-mount.sh
 ExecStart=/mnt/Pandora/Project-B/check-demucs-gpu.sh --nightly
 Nice=10
