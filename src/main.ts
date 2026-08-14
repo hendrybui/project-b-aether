@@ -709,7 +709,7 @@ async function bounceCurrentPattern(stemType: 'full' | 'drums' | 'synth'): Promi
   const fd = new FormData();
   fd.append('file', finalBlob, `aether-${stemType}-${Date.now()}.wav`);
   try {
-    const res = await fetchWithTimeout(`${base}/jobs/upload`, { method: 'POST', body: fd }, 15000);
+    const res = await fetchWithTimeout(`${base}/api/jobs/upload`, { method: 'POST', body: fd }, 15000);
     if (!res.ok) {
       let detail = `HTTP ${res.status}`;
       try { detail = (await res.json()).detail || detail; } catch { /* keep status */ }
