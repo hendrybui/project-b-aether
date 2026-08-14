@@ -31,6 +31,7 @@ DJ_TOOLKIT_DIR="$PROJECT_ROOT/dj_toolkit"
 MUSIC_TOOLS_DIR="$PROJECT_ROOT/music-tools"
 MELODY_SUITE_DIR="$PROJECT_ROOT/melody-suite"
 LLAMA_GPU_SCRIPT="$PROJECT_ROOT/start-llama-gpu.sh"
+SEED_LLM_SCRIPT="$PROJECT_ROOT/seed-llm-config.sh"
 CADDY_CONFIG="/mnt/Pandora/caddy/Caddyfile"
 
 AETHER_PORT=5173
@@ -357,6 +358,27 @@ stop_llama_gpu() {
   fi
 }
 
+start_seed_llm() {
+  # Cloud-LLM seed for fresh browsers (see seed-llm-config.sh). Writes
+  # public/llm-seed.html + public/llm-seed.json; Aether auto-applies the JSON
+  # on load when the browser has no saved config (manual config always wins).
+  # Soft: if the 9router DB or the script is missing we log and continue.
+  if [ ! -x "$SEED_LLM_SCRIPT" ]; then
+    log "   seed-llm-config.sh not found — cloud-LLM seed skipped."
+    return 1
+  fi
+  log "→ Writing cloud-LLM seed (9router) for fresh browsers ..."
+  "$SEED_LLM_SCRIPT" seed --no-open 2>&1 | while read -r l; do log "   $l"; done
+}
+
+stop_seed_llm() {
+  # Remove the key-bearing seed files from public/ on shutdown.
+  if [ -x "$SEED_LLM_SCRIPT" ]; then
+    log "Removing cloud-LLM seed files (gateway key) ..."
+    "$SEED_LLM_SCRIPT" clean 2>&1 | while read -r l; do log "   $l"; done
+  fi
+}
+
 stop_aether() {
   log "Stopping Aether..."
   if [ -f "$AETHER_PIDFILE" ]; then
@@ -445,6 +467,7 @@ stop_all() {
   stop_music_tools
   stop_melody_suite
   stop_llama_gpu
+  stop_seed_llm
   stop_caddy
   log "All (Aether + AudioMass + DJ Toolkit + Music Tools + Melody Suite + GPU LLM + Caddy) stopped."
 }
@@ -592,6 +615,7 @@ case "${1:-start}" in
     guard_pandora_mount
     ensure_caddy
     start_llama_gpu
+    start_seed_llm
     start_aether_dev
     start_audiomass
     start_dj_toolkit
@@ -607,6 +631,7 @@ case "${1:-start}" in
     log "  http://localhost:8091     → Music Tools (melody generator / audio→sheet)"
     log "  http://localhost:5000     → Melody Suite (interactive sheet editor / SATB harmony / MP3→MIDI)"
     log "  http://localhost:11435    → GPU LLM server (llama.cpp Vulkan — Aether AI on the RX 580)"
+    log "  /aether/llm-seed.json     → cloud-LLM seed for fresh browsers (auto-applied on load; cleaned on stop)"
     log ""
     log "Handoff (no gaps): In Aether use BOUNCE buttons for stems/full WAV (named aether-*-to-audiomass.wav)."
     log "  Drop to $PROJECT_ROOT/exports/ or audiomass/jobs/_incoming/ for instant import."
@@ -628,6 +653,7 @@ case "${1:-start}" in
     sleep 1
     ensure_caddy
     start_llama_gpu
+    start_seed_llm
     start_aether_dev
     start_audiomass
     start_dj_toolkit

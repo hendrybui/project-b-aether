@@ -31,6 +31,7 @@ set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 SEED="$ROOT/public/llm-seed.html"
+SEED_JSON="$ROOT/public/llm-seed.json"
 BASE="${AM9_BASE:-http://127.0.0.1:20128/v1}"
 MODEL="${AM9_MODEL:-groq/llama-3.3-70b-versatile}"
 ORIGIN="http://localhost:5173"
@@ -98,7 +99,14 @@ try {
 }
 </script></body></html>
 """ % (cfg, json.dumps(app))
-open(os.environ.get('SEED_OUT', ''), 'w').write(html) if os.environ.get('SEED_OUT') else print(html, end='')
+out = os.environ.get('SEED_OUT', '')
+jout = os.environ.get('SEED_JSON_OUT', '')
+if out:
+    open(out, 'w').write(html)
+if jout:
+    open(jout, 'w').write(json.dumps({'baseUrl': base, 'model': model, 'apiKey': key}, indent=2))
+if not out and not jout:
+    print(html, end='')
 PYEOF
 }
 
@@ -106,8 +114,8 @@ cmd="${1:-seed}"
 case "$cmd" in
   seed|status) ;;
   clean)
-    rm -f "$SEED"
-    echo "[seed] removed $SEED"
+    rm -f "$SEED" "$SEED_JSON"
+    echo "[seed] removed $SEED and $SEED_JSON"
     exit 0
     ;;
   *) echo "usage: $0 {seed|status|clean} [--no-open] [--origin URL]"; exit 2 ;;
@@ -130,8 +138,9 @@ if [ "$cmd" = "status" ]; then
   echo "        base:  $BASE"
   echo "        model: $MODEL"
   echo "        key:   ${#key} chars (never printed)"
-  echo "        via:   ${ORIGIN}/aether/llm-seed.html"
+  echo "        via:   ${ORIGIN}/aether/llm-seed.html (manual) / llm-seed.json (auto-apply)"
   if [ -f "$SEED" ]; then echo "        seed page: present ($(wc -c < "$SEED") bytes)"; else echo "        seed page: absent — run '$0 seed' to create it"; fi
+  if [ -f "$SEED_JSON" ]; then echo "        seed json: present ($(wc -c < "$SEED_JSON") bytes, auto-applied by Aether on fresh browsers)"; else echo "        seed json: absent"; fi
   exit 0
 fi
 
@@ -139,12 +148,12 @@ key="$(read_key)" || exit 1
 [ -z "$key" ] && { echo "[seed] ERROR: no gateway key in 9router DB (apiKeys table empty?)." >&2; echo "[seed]   Set AM9_KEY=<key> to pass it explicitly." >&2; exit 1; }
 
 # The gateway should be listening; warn (but still seed) if it isn't.
-if ! curl -s --max-time 2 "http://127.0.0.1:20128/v1/models" >/dev/null 2>&1; then
+if ! curl -s --max-time 3 "http://127.0.0.1:20128/v1/models" >/dev/null 2>&1; then
   echo "[seed] WARN: 9router gateway not answering on :20128 — the seeded config will only work once it is up." >&2
 fi
 
-SEED_OUT="$SEED" write_seed "$key"
-echo "[seed] wrote $SEED"
+SEED_OUT="$SEED" SEED_JSON_OUT="$SEED_JSON" write_seed "$key"
+echo "[seed] wrote $SEED and $SEED_JSON"
 
 url="${ORIGIN}/aether/llm-seed.html"
 if [ "$OPEN" = "1" ] && command -v xdg-open >/dev/null 2>&1; then

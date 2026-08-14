@@ -603,6 +603,7 @@ function setupAI(): void {
         model: llmModel.value.trim(),
         apiKey: llmKey.value.trim(),
       });
+      try { localStorage.removeItem('aether-llm-cloud-optout'); } catch { /* ignore */ }
       const c = getCloudLLMConfig();
       if (aiStatusEl) {
         aiStatusEl.textContent = c
@@ -615,6 +616,7 @@ function setupAI(): void {
   if (llmClear) {
     llmClear.addEventListener('click', () => {
       setCloudLLMConfig(null);
+      try { localStorage.setItem('aether-llm-cloud-optout', '1'); } catch { /* ignore */ }
       if (llmBase) { llmBase.value = ''; llmModel.value = ''; llmKey.value = ''; }
       if (aiStatusEl) {
         aiStatusEl.textContent = 'Cloud LLM disabled — using the local GPU server';
@@ -622,6 +624,32 @@ function setupAI(): void {
       }
     });
   }
+
+  // Auto-apply the launcher-written cloud-LLM seed (public/llm-seed.json,
+  // written by seed-llm-config.sh via run-aether-with-audiomass.sh) so a
+  // fresh browser gets the 9router config with zero manual setup. Only fires
+  // when no config is saved AND the user hasn't opted out (LOCAL ONLY) — any
+  // manual config always wins.
+  (async () => {
+    try {
+      if (getCloudLLMConfig()) return;
+      if (localStorage.getItem('aether-llm-cloud-optout')) return;
+      const res = await fetch('./llm-seed.json', { cache: 'no-store' });
+      if (!res.ok) return;
+      const seed = await res.json();
+      if (!seed || !seed.baseUrl || !seed.model || !seed.apiKey) return;
+      setCloudLLMConfig(seed);
+      if (llmBase && !llmBase.value.trim()) {
+        llmBase.value = seed.baseUrl;
+        llmModel.value = seed.model;
+        llmKey.value = seed.apiKey;
+      }
+      if (aiStatusEl) {
+        aiStatusEl.textContent = `Cloud LLM seeded: ${seed.model} @ ${seed.baseUrl}`;
+        setTimeout(() => { aiStatusEl.textContent = ''; }, 2600);
+      }
+    } catch { /* no seed file — normal outside the launcher */ }
+  })();
 
   // Melody generator — writes into the sequencer (looping, editable)
   const styleSel = document.getElementById('gen-style') as HTMLSelectElement;

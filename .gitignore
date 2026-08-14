@@ -39,6 +39,7 @@ PROJECT_X-Splinter/
 
 # Seeded browser config (contains the local 9router gateway key)
 public/llm-seed.html
+public/llm-seed.json
 
 # Agent/tool state dirs
 .freebuff/
