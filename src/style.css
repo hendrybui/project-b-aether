@@ -284,6 +284,35 @@ select {
   border-color: var(--accent);
 }
 
+.ai-cloud-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+  align-items: center;
+}
+
+.ai-cloud-row input {
+  flex: 1;
+  min-width: 0;
+  background: #161a22;
+  border: 1px solid #2f3542;
+  color: var(--text);
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.ai-cloud-row input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.ai-cloud-row .btn {
+  padding: 6px 10px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
 .ai-actions {
   display: flex;
   gap: 10px;

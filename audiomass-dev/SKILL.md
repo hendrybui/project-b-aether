@@ -62,7 +62,7 @@ Operational knowledge for working on the AudioMass fork at `audiomass/` inside t
 ## Aether GPU LLM server (llama.cpp Vulkan)
 
 - Aether's AI features now run on the RX 580 via Jan AI's Vulkan llama.cpp build: `start-llama-gpu.sh {start|status|stop|restart}` at the repo root. Server on `127.0.0.1:11435` (OpenAI-compatible), model `Jan_ai/llamacpp/models/Qwen3-8B-Q4_K_M.gguf` (full 5.0 GB copy — the 1 GB one in `gguf-models/` is truncated), `-ngl 99 --reasoning-budget 0 -c 4096`. ~30 tok/s vs ~4 on CPU.
-- `src/ai/ollama.ts` tries the GPU server first, falls back to Ollama (:11434, CPU), then returns null → local generators. `start-llama-gpu.sh` is wired into `run-aether-with-audiomass.sh start/restart/stop` (soft-fail).
+- `src/ai/ollama.ts` tries a configured cloud/OpenAI-compatible base URL first (UI row "USE CLOUD" in the AI panel, persisted in localStorage under `aether-llm-cloud`, works with the local 9router or any provider), then the GPU server, then Ollama (:11434, CPU), then returns null → local generators. `start-llama-gpu.sh` is wired into `run-aether-with-audiomass.sh start/restart/stop` (soft-fail).
 - No VRAM clash with demucs: Qwen3-8B Q4 ≈ 4.9 GB + htdemucs ≈ 2-3 GB both fit the 7.75 GiB RX 580.
 
 ## UI layout

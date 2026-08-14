@@ -13,7 +13,13 @@ import {
   generateDrumPattern, applyEuclidean, mutateSequence, randomizeSequence,
   generateBassline, generateStabs, generateArp,
 } from './ai/sequenceGenerators';
-import { describeToPatchWithOllama, generateAudioMassIdeaWithOllama } from './ai/ollama';
+import {
+  describeToPatchWithOllama,
+  generateAudioMassIdeaWithOllama,
+  getCloudLLMConfig,
+  setCloudLLMConfig,
+  getLastBackend,
+} from './ai/ollama';
 
 // ===== State =====
 let synth: AetherSynth;
@@ -543,16 +549,26 @@ function setupAI(): void {
     await ensureAudio();
     const text = promptInput.value.trim() || 'beautiful evolving texture';
     const status = document.getElementById('ai-status')!;
-    status.textContent = 'Asking local LLM (GPU: llama.cpp)...';
+    const cloud = getCloudLLMConfig();
+    status.textContent = cloud
+      ? `Asking cloud LLM (${cloud.model})...`
+      : 'Asking local LLM (GPU: llama.cpp)...';
     const result = await describeToPatchWithOllama(text);
     if (result) {
       const clean: Partial<SynthParams> = {};
       for (const k of Object.keys(result)) {
         if (k in defaultParams) (clean as any)[k] = result[k];
       }
-      applyPatch(clean, `Local LLM: ${text}`);
+      const backend = getLastBackend() ?? 'gpu';
+      const label = backend === 'cloud'
+        ? `Cloud LLM: ${text}`
+        : backend === 'gpu'
+          ? `Local LLM (GPU): ${text}`
+          : `Local LLM (Ollama): ${text}`;
+      applyPatch(clean, label);
+      refreshEngineFn?.(); // show the answering LLM backend in the bridge row now
     } else {
-      status.textContent = 'Local LLM not responding — using local generator instead';
+      status.textContent = 'LLM not responding — using local generator instead';
       const { params } = promptToPatch(text);
       applyPatch(params, text);
       setTimeout(() => { status.textContent = ''; }, 1800);
@@ -562,6 +578,48 @@ function setupAI(): void {
   if (promptInput) {
     promptInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') genBtn.click();
+    });
+  }
+
+  // Cloud LLM config (optional OpenAI-compatible base URL; else local GPU server)
+  const llmBase = document.getElementById('llm-base') as HTMLInputElement;
+  const llmModel = document.getElementById('llm-model') as HTMLInputElement;
+  const llmKey = document.getElementById('llm-key') as HTMLInputElement;
+  const llmSave = document.getElementById('llm-save');
+  const llmClear = document.getElementById('llm-clear');
+  const aiStatusEl = document.getElementById('ai-status');
+  if (llmBase) {
+    const cur = getCloudLLMConfig();
+    if (cur) {
+      llmBase.value = cur.baseUrl;
+      llmModel.value = cur.model;
+      llmKey.value = cur.apiKey;
+    }
+  }
+  if (llmSave) {
+    llmSave.addEventListener('click', () => {
+      setCloudLLMConfig({
+        baseUrl: llmBase.value.trim(),
+        model: llmModel.value.trim(),
+        apiKey: llmKey.value.trim(),
+      });
+      const c = getCloudLLMConfig();
+      if (aiStatusEl) {
+        aiStatusEl.textContent = c
+          ? `Cloud LLM enabled: ${c.model} @ ${c.baseUrl} — tried first, falls back to GPU`
+          : 'Enter a base URL to enable the cloud LLM';
+        setTimeout(() => { aiStatusEl.textContent = ''; }, 2600);
+      }
+    });
+  }
+  if (llmClear) {
+    llmClear.addEventListener('click', () => {
+      setCloudLLMConfig(null);
+      if (llmBase) { llmBase.value = ''; llmModel.value = ''; llmKey.value = ''; }
+      if (aiStatusEl) {
+        aiStatusEl.textContent = 'Cloud LLM disabled — using the local GPU server';
+        setTimeout(() => { aiStatusEl.textContent = ''; }, 2600);
+      }
     });
   }
 
@@ -1008,6 +1066,10 @@ function setupMelodyGeneratorBridge(): void {
 }
 
 // ===== AudioMass live job progress =====
+// Set by setupAudioMassJobMonitor so other handlers (e.g. LLM generation)
+// can refresh the engine/LLM status row on demand.
+let refreshEngineFn: (() => void) | null = null;
+
 function setupAudioMassJobMonitor(): void {
   const row = document.getElementById('am-job-row');
   if (!row) return;
@@ -1060,10 +1122,26 @@ function setupAudioMassJobMonitor(): void {
           if (p.eviction) text += ` (evicted: ${p.eviction})`;
         }
       }
+      // Which local/cloud LLM backend answered the last AI generation
+      // (cloud via 9router → GPU llama.cpp → Ollama CPU).
+      const llmBackend = getLastBackend();
+      if (llmBackend) {
+        let llmLabel: string;
+        if (llmBackend === 'cloud') {
+          const cloud = getCloudLLMConfig();
+          llmLabel = cloud ? `Cloud (${cloud.model})` : 'Cloud';
+        } else if (llmBackend === 'gpu') {
+          llmLabel = 'GPU (llama.cpp)';
+        } else {
+          llmLabel = 'Ollama (CPU)';
+        }
+        text += ` · LLM: ${llmLabel}`;
+      }
       engineEl.textContent = text;
       engineEl.style.display = 'flex';
     } catch { /* AudioMass unreachable — leave the previous state */ }
   };
+  refreshEngineFn = refreshEngine;
 
   const PHASE_LABELS: Record<string, string> = {
     validating_input: 'Validating audio',
