@@ -40,6 +40,10 @@ AUDIOMASS_PORT=5055
 DJ_TOOLKIT_PORT=5001
 MUSIC_TOOLS_PORT=8091
 MELODY_SUITE_PORT=5000
+# ROCm demucs image for the AudioMass GPU warm pool (audiomass/backend/adapters/docker_runtime.py).
+# The server degrades to the local CPU worker if docker/daemon/image is unavailable,
+# so this is safe to always set; the pool idle-evicts after 600s of no jobs.
+DEMUCS_IMAGE="rocm64_gfx803_demucs:2.4"
 
 # Logs and runtime state under /tmp (shared "Pandora" namespace, survives script restarts)
 LOG_DIR="/tmp"
@@ -253,7 +257,7 @@ start_audiomass() {
 
   # AUDIOMASS_PORT env respected inside audiomass/run.sh (PORT=...); we pass "start" only.
   # (AudioMass uses relative asset paths, so strip_prefix /mass in Caddy + proxy works cleanly.)
-  nohup env AUDIOMASS_PORT="$AUDIOMASS_PORT" "$AUDIOMASS_DIR/run.sh" start > "$AUDIOMASS_LOG" 2>&1 &
+  nohup env AUDIOMASS_PORT="$AUDIOMASS_PORT" AUDIOMASS_DEMUCS_DOCKER_IMAGE="$DEMUCS_IMAGE" "$AUDIOMASS_DIR/run.sh" start > "$AUDIOMASS_LOG" 2>&1 &
 
   local pid=$!
   echo "$pid" > "$AUDIOMASS_PIDFILE"

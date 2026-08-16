@@ -10,7 +10,7 @@
 #        - both jobs finish 'done' with all 6 stems (+ mix + original)
 #        - the pool loaded the model exactly ONCE (pool.log)
 #        - the second job is much faster than the first (startup paid once)
-#   4. Idle-eviction check: with a forced 10s idle window the pool must
+#   4. Idle-eviction check: with a forced 60s idle window the pool must
 #      release the GPU on its own once no job is dispatched, recording the
 #      reason ('idle') in the evicted marker and in /api/diagnostics.
 #
@@ -18,6 +18,7 @@
 #
 # Env overrides:  AUDIOMASS_DEMUCS_DOCKER_IMAGE (default rocm64_gfx803_demucs:2.4)
 #                 SMOKE_SECONDS (track length, default 12)
+#                 SMOKE_IDLE_TIMEOUT (pool idle-eviction window, default 60)
 #
 # Place / run from: /mnt/Pandora/Project-B/
 
@@ -46,6 +47,11 @@ AM_SRV="$AUDIOMASS_DIR/src/audiomass-server.py"
 IMAGE="${AUDIOMASS_DEMUCS_DOCKER_IMAGE:-rocm64_gfx803_demucs:2.4}"
 BASE_IMAGE="rocm64_gfx803_pytorch:2.4"
 SECONDS_LEN="${SMOKE_SECONDS:-12}"
+# Pool idle-eviction window for the smoke: must be comfortably larger than the
+# gap between job 1 completing and job 2 being dispatched (done-detection +
+# upload can take >10s on a loaded box), or the pool idle-evicts between the
+# jobs and the model loads twice. The same value drives the eviction check.
+SMOKE_IDLE_TIMEOUT="${SMOKE_IDLE_TIMEOUT:-60}"
 
 WORK="$(mktemp -d /tmp/am-gpu-check.XXXXXX)"
 SERVER_PID=""
@@ -115,10 +121,11 @@ ffmpeg -y -loglevel error -f lavfi -i "sine=frequency=220:duration=${SECONDS_LEN
 
 PORT="$("$AM_PY" -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()')"
 log "starting isolated AudioMass on :$PORT (jobs in $JOBS)"
-# The smoke forces a 10s idle-eviction window (regardless of any user env)
-# so the final eviction check completes quickly and deterministically.
+# The smoke forces a generous idle-eviction window (default 60s, regardless
+# of any user env) so the back-to-back jobs can't race the idle eviction; the
+# window also drives the eviction-check wait below.
 AUDIOMASS_PORT="$PORT" AUDIOMASS_JOBS_DIR="$JOBS" AUDIOMASS_DEMUCS_DOCKER_IMAGE="$IMAGE" \
-  AUDIOMASS_POOL_IDLE_TIMEOUT=10 \
+  AUDIOMASS_POOL_IDLE_TIMEOUT="$SMOKE_IDLE_TIMEOUT" \
   "$AM_PY" "$AM_SRV" > "$WORK/server.log" 2>&1 &
 SERVER_PID=$!
 for _ in $(seq 1 60); do
@@ -168,7 +175,7 @@ POOL_UP=$(docker ps --format '{{.Names}}' | grep -qx "$POOL_CONTAINER" && echo y
 # The supervisor evicts itself IDLE_WAIT seconds after the last job; wait
 # past that with margin, then require: the container is gone, the evicted
 # marker says 'idle', and /api/diagnostics agrees (up=false, eviction=idle).
-IDLE_WAIT=10
+IDLE_WAIT="$SMOKE_IDLE_TIMEOUT"
 echo
 log "idle eviction check (window ${IDLE_WAIT}s — waiting $((IDLE_WAIT + 10))s)..."
 sleep $((IDLE_WAIT + 10))
