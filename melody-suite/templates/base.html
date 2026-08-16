@@ -1,6 +1,24 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <script>
+      // Reverse-proxy prefix support: when served behind http://localhost/melody
+      // (Caddy strips /melody and forwards X-Script-Name), url_for already emits
+      // prefixed links; this shim makes the hard-coded fetch('/api/...') calls
+      // prefix-aware too. No-op on direct :5000 access (empty script_root).
+      window.API_BASE = "{{ request.script_root }}";
+      (function () {
+        var base = window.API_BASE;
+        if (!base) return;
+        var orig = window.fetch;
+        window.fetch = function (input, init) {
+          if (typeof input === 'string' && input.charAt(0) === '/' && input.charAt(1) !== '/') {
+            input = base + input;
+          }
+          return orig.call(this, input, init);
+        };
+      })();
+    </script>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Melody Sheet Suite{% endblock %}</title>

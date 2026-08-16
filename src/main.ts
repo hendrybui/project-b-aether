@@ -1011,8 +1011,10 @@ function setupAudioMassLLMBridge(): void {
 // companion apps). Both send the same contract: {source, version, bpm, key,
 // scale, notes:[{midi, beats}]}, where midi === null encodes a rest.
 const MELODY_BRIDGE_SOURCES = ['music-tools-melody', 'melody-suite-melody'] as const;
-const MELODY_STUDIO_URL = 'http://localhost:5000/tools/melody-sheet/melody-studio';
-const MELODY_SUITE_AI_URL = 'http://localhost:5000/tools/melody-sheet/ai-melody-generator';
+// The suite is proxied at /melody (Caddy strip + X-Script-Name); direct
+// :5000 also still works, but the proxy keeps everything on one origin.
+const MELODY_STUDIO_URL = 'http://localhost/melody/tools/melody-sheet/melody-studio';
+const MELODY_SUITE_AI_URL = 'http://localhost/melody/tools/melody-sheet/ai-melody-generator';
 
 function setupMelodyGeneratorBridge(): void {
   const openBtn = document.getElementById('mt-open-btn');
@@ -1028,12 +1030,12 @@ function setupMelodyGeneratorBridge(): void {
 
   openBtn?.addEventListener('click', () => {
     window.open(MELODY_STUDIO_URL, 'aether-melody-gen');
-    say('Melody Studio (:5000) opened — generate ideas, then click “Send to Aether” on one.');
+    say('Melody Studio (/melody) opened — generate ideas, then click “Send to Aether” on one.');
   });
 
   msOpenBtn?.addEventListener('click', () => {
     window.open(MELODY_SUITE_AI_URL, 'aether-melody-gen');
-    say('Melody Suite AI generator (:5000) opened — generate ideas, then click “⇢ Send to Aether” on one.');
+    say('Melody Suite AI generator (/melody) opened — generate ideas, then click “⇢ Send to Aether” on one.');
   });
 
   window.addEventListener('message', async (ev: MessageEvent) => {

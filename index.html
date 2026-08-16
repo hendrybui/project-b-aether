@@ -349,10 +349,10 @@
 
           <!-- Melody from Music Tools / Melody Suite (local companion apps) — postMessage bridge -->
           <div class="ai-section mt-bridge">
-            <div class="ai-label">MELODY FROM MELODY SUITE (LOCAL APP :5000)</div>
+            <div class="ai-label">MELODY FROM MELODY SUITE (VIA PROXY /melody)</div>
             <div class="ai-row" style="margin-bottom:6px">
-              <button id="mt-open-btn" class="btn">🎛 OPEN MELODY STUDIO (:5000)</button>
-              <button id="ms-open-btn" class="btn">🎶 OPEN AI MELODY GENERATOR (:5000)</button>
+              <button id="mt-open-btn" class="btn">🎛 OPEN MELODY STUDIO (/melody)</button>
+              <button id="ms-open-btn" class="btn">🎶 OPEN AI MELODY GENERATOR (/melody)</button>
               <span id="mt-status" class="ai-status" style="color:#4ade80;"></span>
             </div>
             <div class="ai-hint">Opens Melody Studio (browser melody generator + sheet) or the AI Melody Generator in a popup. Generate an idea there and click “Send to Aether” — its notes are quantized into the SYN lane (1 step per beat, rests leave gaps) and the sequencer tempo follows the melody. Works entirely over postMessage; no files or servers in between.</div>

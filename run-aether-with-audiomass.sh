@@ -715,6 +715,7 @@ case "${1:-start}" in
     log "    NOTE: the /aether* proxy route passes the path through UNTOUCHED — Vite runs --base /aether/, so a uri strip_prefix would make Vite receive / and 302-loop. Use the trailing slash (http://localhost/aether/); a bare /aether 404s from Vite's base check. Edit /mnt/Pandora/caddy/Caddyfile (then $0 caddy-restart)."
     log "    NOTE: Open WebUI is the Caddy catch-all — the Caddyfile ends with a matcher-less handle (localhost:3000). handle / matches ONLY the root and would break OWUI's /static + /api paths; add new prefix routes ABOVE the catch-all."
     log "  http://localhost/mass     → AudioMass (multitrack waveform editor)"
+    log "  http://localhost/melody   → Melody Suite (sheet editor / SATB harmony / MP3→MIDI)"
     log "Direct ports (no proxy needed):"
     log "  http://localhost:5001     → DJ Toolkit (stems / BPM-key / vocal remover / MP3→MIDI)"
     log "  http://localhost:8091     → Music Tools (melody generator / audio→sheet)"

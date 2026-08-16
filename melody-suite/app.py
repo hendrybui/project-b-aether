@@ -24,12 +24,48 @@ from engines.paths import (
 )
 from engines.url_fetch import fetch_audio
 
+
+class PrefixMiddleware:
+    """Make the app prefix-aware when served behind a path-mounting proxy.
+
+    Caddy (route /melody*) strips the prefix and forwards
+    ``X-Script-Name: /melody``; this middleware turns that header into
+    ``SCRIPT_NAME`` so ``url_for`` emits /melody/... links and assets. Direct
+    access to :5000 (no header) is completely unaffected.
+    """
+
+    def __init__(self, wsgi_app):
+        self.wsgi_app = wsgi_app
+
+    def __call__(self, environ, start_response):
+        script_name = environ.get("HTTP_X_SCRIPT_NAME", "")
+        if script_name:
+            environ["SCRIPT_NAME"] = script_name
+            path = environ.get("PATH_INFO", "")
+            if path.startswith(script_name):
+                environ["PATH_INFO"] = path[len(script_name):]
+        return self.wsgi_app(environ, start_response)
+
+
+def _scripted(url):
+    """Prefix a root-relative URL (/output/x, /api/...) with the proxy mount.
+
+    Server-generated download URLs (midi_url / xml_url) are root-relative
+    strings; when served under http://localhost/melody they must carry the
+    /melody prefix or the browser resolves them against the proxy root.
+    """
+    root = request.script_root
+    if not root or url.startswith(root):
+        return url
+    return root + url
+
 # Chromatic note options for the pitch-range dropdowns (C1–E7).
 _NOTE_NAMES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B']
 NOTE_OPTIONS = [{'midi': (oct+1)*12 + i, 'name': f"{_NOTE_NAMES[i]}{oct}"}
                 for oct in range(1, 8) for i in range(12) if (oct+1)*12 + i <= 100][:84]
 
 app = Flask(__name__)
+app.wsgi_app = PrefixMiddleware(app.wsgi_app)
 
 # Persistent session secret: the cookie-signed bpm-history (and any future
 # per-session state) survives server restarts instead of being invalidated
@@ -372,7 +408,7 @@ def api_transcribe():
         )
         mpath = output_path('trans_', '.mid')
         notes_to_midi(result['notes'], tempo=result['tempo'], filename=mpath)
-        result['midi_url'] = output_url(mpath)
+        result['midi_url'] = _scripted(output_url(mpath))
         return jsonify(result)
     except ValueError as e:
         return jsonify({'error': str(e)}), 400
@@ -394,7 +430,7 @@ def api_sheet_music():
         tempo = _clamp(data.get('tempo', 96), 96, 40, 240, 'tempo', converter=float)
         xml_str = notes_to_musicxml(notes, tempo=tempo, key=data.get('key'))
         url = save_text('sheet_', '.xml', xml_str)
-        return jsonify({'xml_url': url})
+        return jsonify({'xml_url': _scripted(url)})
     except ValueError as e:
         return jsonify({'error': str(e)}), 400
     except Exception as e:
@@ -425,11 +461,11 @@ def api_harmony():
         result = generate_satb(notes, key=key, style=style)
         mb = result.get('midi_data')
         if mb:
-            result['midi_url'] = save_bytes('harmony_', '.mid', mb)
+            result['midi_url'] = _scripted(save_bytes('harmony_', '.mid', mb))
         result.pop('midi_data', None)
         if result.get('voices'):
             xml_str = harmony_to_musicxml(result['voices'], tempo=96, key=key)
-            result['xml_url'] = save_text('harmony_', '.xml', xml_str)
+            result['xml_url'] = _scripted(save_text('harmony_', '.xml', xml_str))
         return jsonify(result)
     except ValueError as e:
         return jsonify({'error': str(e)}), 400
@@ -457,7 +493,7 @@ def api_harmony_xml():
                 raise ValueError('Each voice needs soprano/alto/tenor/bass pitches and a duration')
         xml_str = harmony_to_musicxml(voices, tempo=data.get('tempo', 96),
                                       layout=layout, key=data.get('key'))
-        return jsonify({'xml_url': save_text('harmony_', '.xml', xml_str)})
+        return jsonify({'xml_url': _scripted(save_text('harmony_', '.xml', xml_str))})
     except (ValueError, TypeError, KeyError) as e:
         return jsonify({'error': str(e)}), 400
     except Exception as e:
@@ -484,7 +520,7 @@ def api_melody_generate():
         for c in cands:
             mpath = output_path('melody_', '.mid')
             melody_to_midi(c, filename=mpath)
-            c['midi_url'] = output_url(mpath)
+            c['midi_url'] = _scripted(output_url(mpath))
         return jsonify({'candidates': cands})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -510,7 +546,7 @@ def api_melody_continue():
         for c in cands:
             mpath = output_path('melody_', '.mid')
             melody_to_midi(c, filename=mpath)
-            c['midi_url'] = output_url(mpath)
+            c['midi_url'] = _scripted(output_url(mpath))
         return jsonify({'candidates': cands})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -530,7 +566,7 @@ def api_editor_export():
             raise ValueError('notes must not be empty')
         mpath = output_path('editor_', '.mid')
         notes_to_midi(notes, tempo=tempo, filename=mpath)
-        return jsonify({'midi_url': output_url(mpath)})
+        return jsonify({'midi_url': _scripted(output_url(mpath))})
     except ValueError as e:
         return jsonify({'error': str(e)}), 400
     except Exception as e:
