@@ -6,6 +6,7 @@
 # - AudioMass: its run.sh (stdlib server) on 5055 (relative assets -> /mass proxy works)
 # - DJ Toolkit: dj_toolkit/app.py (flask) on 5001 — stems / BPM-key / vocal remover / MP3->MIDI
 # - Music Tools: music-tools/run.sh (static) on 8091 — melody generator / audio-to-sheet
+# - Open WebUI: ~/webui/start-webui.sh (venv) on 3000 — LLM hub / chat / tools (Caddy catch-all route)
 # - Caddy: intelligently start/stop/restart using /mnt/Pandora/caddy/Caddyfile if not running or config hash changed.
 #   Uses pidfiles + config hash in /tmp for reliable management across sessions.
 #   Tries direct then sudo -n; continues even if Caddy bind fails (direct ports still work).
@@ -55,6 +56,15 @@ MUSIC_TOOLS_PIDFILE="$LOG_DIR/music-tools.pid"
 MELODY_SUITE_PIDFILE="$LOG_DIR/melody-suite.pid"
 CADDY_PIDFILE="$LOG_DIR/pandora-caddy.pid"
 CADDY_HASHFILE="$LOG_DIR/pandora-caddy-config.hash"
+
+# Open WebUI (LLM hub) — managed via its own scripts in ~/webui; Caddy catch-all on :80
+WEBUI_HOME="${HOME}/webui"
+WEBUI_START_SCRIPT="$WEBUI_HOME/start-webui.sh"
+WEBUI_STOP_SCRIPT="$WEBUI_HOME/stop-webui.sh"
+WEBUI_APP_VENV="/mnt/Pandora/open-webui-local/venv/bin/open-webui"
+WEBUI_PORT=3000
+WEBUI_LOG="$LOG_DIR/webui.log"
+WEBUI_PIDFILE="$LOG_DIR/webui.pid"
 
 log() {
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
@@ -219,7 +229,7 @@ start_aether_dev() {
 
   log "   Aether dev server PID: $pid (logs: $AETHER_LOG)"
   log "   Direct: http://localhost:$AETHER_PORT"
-  log "   Via proxy: http://localhost/aether"
+  log "   Via proxy: http://localhost/aether/"
 
   # Ensure shared folders for seamless Aether <-> AudioMass handoff (exports for WAVs, samples for roundtrips)
   mkdir -p "$PROJECT_ROOT/exports" "$PROJECT_ROOT/samples"
@@ -337,6 +347,39 @@ start_melody_suite() {
 
   log "   Melody Suite PID: $pid (logs: $MELODY_SUITE_LOG)"
   log "   Direct: http://localhost:$MELODY_SUITE_PORT  (editor: /tools/melody-sheet/interactive-sheet-music-editor-playback)"
+}
+
+start_webui() {
+  # Open WebUI (LLM hub / chat / tools) — venv app on :3000, served as the Caddy
+  # catch-all route (http://localhost/). Uses the existing ~/webui scripts.
+  # Soft: if the scripts/venv are missing we log and continue.
+  if [ ! -x "$WEBUI_START_SCRIPT" ]; then
+    log "   ~/webui/start-webui.sh not found — Open WebUI skipped."
+    return 1
+  fi
+  if [ ! -x "$WEBUI_APP_VENV" ]; then
+    log "   open-webui venv missing at $WEBUI_APP_VENV — Open WebUI skipped."
+    return 1
+  fi
+  log "→ Starting Open WebUI (LLM hub) on :$WEBUI_PORT ..."
+
+  # Clean prior instance (also catches a manually-started open-webui on :3000)
+  if [ -f "$WEBUI_PIDFILE" ]; then
+    kill "$(cat "$WEBUI_PIDFILE" 2>/dev/null)" 2>/dev/null || true
+    rm -f "$WEBUI_PIDFILE"
+  fi
+  pkill -f "open-webui.*serve --port $WEBUI_PORT" 2>/dev/null || true
+
+  # start-webui.sh runs `open-webui serve` as its foreground process, so the script's
+  # PID is what we track; its SIGTERM trap cleans up the tool server (:8000) on stop.
+  nohup bash "$WEBUI_START_SCRIPT" > "$WEBUI_LOG" 2>&1 &
+  local pid=$!
+  echo "$pid" > "$WEBUI_PIDFILE"
+
+  log "   Open WebUI PID: $pid (logs: $WEBUI_LOG)"
+  log "   Direct: http://localhost:$WEBUI_PORT"
+  log "   Via proxy: http://localhost/  (Caddy catch-all route)"
+  log "   First boot: pip install + DB migrations (~30-60s) + Open Terminal docker image pull (first time only, can take minutes). Ready when :3000 answers; also starts tool server :8000 + Open Terminal :8001."
 }
 
 start_llama_gpu() {
@@ -460,16 +503,40 @@ stop_melody_suite() {
   log "  Melody Suite stopped."
 }
 
+stop_webui() {
+  log "Stopping Open WebUI... (via ~/webui/stop-webui.sh)"
+  # Kill the tracked start-webui.sh wrapper first so its trap stops the tool server
+  if [ -f "$WEBUI_PIDFILE" ]; then
+    local pid
+    pid=$(cat "$WEBUI_PIDFILE" 2>/dev/null || true)
+    if [ -n "$pid" ]; then
+      kill "$pid" 2>/dev/null || true
+      sleep 0.3
+      kill -9 "$pid" 2>/dev/null || true
+    fi
+    rm -f "$WEBUI_PIDFILE"
+  fi
+  # The existing script pkills open-webui serve (catches orphans + manual starts) and the tool server
+  if [ -x "$WEBUI_STOP_SCRIPT" ]; then
+    bash "$WEBUI_STOP_SCRIPT" 2>&1 | while read -r l; do log "   $l"; done
+  else
+    pkill -f "open-webui.*serve" 2>/dev/null || true
+    pkill -f "python main.py" 2>/dev/null || true
+  fi
+  log "  Open WebUI stopped."
+}
+
 stop_all() {
   stop_aether
   stop_audiomass
   stop_dj_toolkit
   stop_music_tools
   stop_melody_suite
+  stop_webui
   stop_llama_gpu
   stop_seed_llm
   stop_caddy
-  log "All (Aether + AudioMass + DJ Toolkit + Music Tools + Melody Suite + GPU LLM + Caddy) stopped."
+  log "All (Aether + AudioMass + DJ Toolkit + Music Tools + Melody Suite + Open WebUI + GPU LLM + Caddy) stopped."
 }
 
 status() {
@@ -596,9 +663,27 @@ status() {
   echo "  logfile : $MELODY_SUITE_LOG"
   echo ""
 
+  # --- Open WebUI ---
+  echo "Open WebUI (venv :$WEBUI_PORT — LLM hub / chat / tools; Caddy catch-all):"
+  local wpid=""
+  [ -f "$WEBUI_PIDFILE" ] && wpid=$(cat "$WEBUI_PIDFILE" 2>/dev/null || true)
+  if [ -n "$wpid" ] && kill -0 "$wpid" 2>/dev/null; then
+    echo "  RUNNING   pid=$wpid (pidfile — start-webui.sh wrapper)"
+  elif pgrep -f "open-webui.*serve" >/dev/null 2>&1; then
+    echo "  RUNNING   (pgrep match)"
+    pgrep -af "open-webui.*serve" 2>/dev/null | head -1 | sed 's/^/    /'
+  else
+    echo "  NOT RUNNING"
+  fi
+  if ss -tlnp 2>/dev/null | grep -q ":$WEBUI_PORT[ ]"; then
+    echo "  :$WEBUI_PORT listening: YES"
+  fi
+  echo "  logfile : $WEBUI_LOG"
+  echo ""
+
   # --- Proxy tests ---
   echo "Quick proxy tests (http://localhost via Caddy, 2s timeout):"
-  for path in / /aether /mass /audiomass; do
+  for path in / /aether/ /mass /audiomass; do
     local code
     code=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 2 "http://localhost${path}" 2>/dev/null || echo "000/ERR")
     echo "  http://localhost${path}  -> HTTP $code"
@@ -621,10 +706,14 @@ case "${1:-start}" in
     start_dj_toolkit
     start_music_tools
     start_melody_suite
+    start_webui
     echo ""
-    log "Aether + AudioMass + DJ Toolkit + Music Tools + Melody Suite + GPU LLM + Caddy ready — the full creative stack."
+    log "Aether + AudioMass + DJ Toolkit + Music Tools + Melody Suite + Open WebUI + GPU LLM + Caddy ready — the full creative stack."
     log "Recommended unified access (Caddy on :80):"
-    log "  http://localhost/aether   → Aether (AI music generation + sequencer, hot reload)"
+    log "  http://localhost/          → Open WebUI (LLM hub / chat / tools)"
+    log "  http://localhost/aether/   → Aether (AI music generation + sequencer, hot reload)"
+    log "    NOTE: the /aether* proxy route passes the path through UNTOUCHED — Vite runs --base /aether/, so a uri strip_prefix would make Vite receive / and 302-loop. Use the trailing slash (http://localhost/aether/); a bare /aether 404s from Vite's base check. Edit /mnt/Pandora/caddy/Caddyfile (then $0 caddy-restart)."
+    log "    NOTE: Open WebUI is the Caddy catch-all — the Caddyfile ends with a matcher-less handle (localhost:3000). handle / matches ONLY the root and would break OWUI's /static + /api paths; add new prefix routes ABOVE the catch-all."
     log "  http://localhost/mass     → AudioMass (multitrack waveform editor)"
     log "Direct ports (no proxy needed):"
     log "  http://localhost:5001     → DJ Toolkit (stems / BPM-key / vocal remover / MP3→MIDI)"
@@ -638,7 +727,7 @@ case "${1:-start}" in
     log "  Load back in Aether via file input in the bounce section for preview/noise boost."
     log "  Exports and samples folders created automatically for roundtrips."
     log ""
-    log "Other (if running): http://localhost/ → Open WebUI etc. (see Caddyfile)"
+    log "Other (if running): http://localhost/comfy → ComfyUI; http://localhost/ollama → Ollama (see Caddyfile)"
     log "Stop:   $0 stop"
     log "Status: $0 status"
     log "Restart whole: $0 restart"
@@ -659,6 +748,7 @@ case "${1:-start}" in
     start_dj_toolkit
     start_music_tools
     start_melody_suite
+    start_webui
     log "Restart complete."
     ;;
   status)
@@ -682,7 +772,7 @@ case "${1:-start}" in
   *)
     echo "Usage: $0 {start|stop|restart|status|build-aether|caddy-restart}"
     echo ""
-    echo "  start          Start Caddy (smart) + GPU LLM + Aether dev + AudioMass + DJ Toolkit + Music Tools + Melody Suite"
+    echo "  start          Start Caddy (smart) + GPU LLM + Aether dev + AudioMass + DJ Toolkit + Music Tools + Melody Suite + Open WebUI"
     echo "  stop           Stop everything + our Caddy instance"
     echo "  restart        stop + start"
     echo "  status         Show pids, logs tails, listeners, quick curl tests against proxy"
