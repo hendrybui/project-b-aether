@@ -1,5 +1,11 @@
 # API-CONTRACT.md — the AudioMass backend REST contract
 
+> **The new backend is LIVE in development** (2026-08-27): `backend/` at the
+> repo root — FastAPI, moved + pruned from the old `audiomass/backend/`.
+> Serving on **:5056** while the old backend holds :5055; all routes below
+> verified against it end-to-end (CPU *and* ROCm warm-pool GPU paths,
+> 61/61 unit tests). Cutover = flip the port. This doc stays the spec.
+>
 > **This is the spec the new backend must serve.** Written 2026-08-27 by
 > enumerating every route the *current* stdlib server implements
 > (`audiomass/src/audiomass-server.py`) and every call the three consumers
@@ -36,7 +42,7 @@
 ### POST
 | Route | Purpose | Notes |
 |---|---|---|
-| `/api/jobs/upload` | multipart/form-data WAV intake → creates separation job | **409** when a job is already active (`ActiveJobConflictError`) — single-active-job semantics; Aether surfaces this. 422 on non-multipart |
+| `/api/jobs/upload` | multipart intake → creates separation job | Fields: `file` (the WAV blob — this exact name; Aether `main.ts:800` and stems.js both use it) + optional `stems` (JSON **string** form field, e.g. `["vocals","drums"]`). **409** when a job is already active — single-active-job semantics; Aether surfaces this. 422 on non-multipart |
 | `/api/jobs/{id}/cancel` | request cancel → `{"status":"cancel_requested"}` | 404 if not cancellable |
 | `/api/transcribe` | audio → JSON notes (basic-pitch) | notes only, **no MIDI file** (roadmap 6.1) |
 | `/api/projects` | save project state | |

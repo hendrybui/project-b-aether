@@ -8,10 +8,12 @@ Guidance for OpenCode agents working in this workspace.
 
 The AudioMass **Python backend is scrapped**; the **editor frontend and mixer are kept**. A new backend serves the same REST contract.
 
+- **Status: new backend BUILT & verified** — `backend/` at root (FastAPI, moved + pruned from `audiomass/backend/`), running on **:5056** in dev while the old backend holds :5055. End-to-end verified: CPU + ROCm warm-pool GPU separation, manifest/stems/SSE routes, 61/61 unit tests (`PYTHONPATH=backend audiomass/.venv/bin/python -m unittest discover -s backend/tests -v`). See `backend/README.md`.
 - **Spec:** `API-CONTRACT.md` (repo root) — every route, consumer call-site, the job state machine, and what's internal/reusable (ROCm demucs image, smoke-test script).
-- **Ownership split:** backend rebuild works from `API-CONTRACT.md` (no frontend changes needed); mixer-frontend work is `mixer/ROADMAP.md` phases 2.3/2.4/3.1. The two streams don't collide — the contract is the interface.
-- **Cutover:** new backend takes `:5055` (or update the 3 hardcoded spots listed in the contract), Caddy `/mass` follows automatically. Then delete: `audiomass/src/audiomass-server.py`, `audiomass/backend/`, `tests/audiomass-*.test.mjs`, `scripts/check-demucs-gpu.sh`.
-- **Reuse, don't rebuild:** the `rocm64_gfx803_demucs:2.4` image + warm-pool concept (GPU model load is ~40s; warm reuse matters on the RX 580).
+- **Ownership split:** backend work happens in `backend/`; mixer-frontend work is `mixer/ROADMAP.md` phases 2.3/2.4/3.1. The two streams don't collide — the contract is the interface.
+- **Cutover (when user confirms parity in browser):** stop `audiomass.service`, flip `systemd/mass-backend.service` to :5055 + `systemctl --user enable --now mass-backend`, bootstrap a dedicated venv (`backend/requirements.txt`), point the launcher's `start_audiomass` at the new unit. Then delete: `audiomass/src/audiomass-server.py`, `audiomass/backend/`, `tests/audiomass-*.test.mjs`, `scripts/check-demucs-gpu.sh`.
+- **Reuse, don't rebuild:** the `rocm64_gfx803_demucs:2.4` image + warm-pool concept (GPU model load is ~40s; warm reuse matters on the RX 580) — both already inherited by the new backend.
+- **Gotcha:** both backends listen as `uvicorn app:app` — never bare-`pkill uvicorn app:app` (kills both); match the port (`pkill -f "[u]vicorn.*5056"`).
 - `mixer/` is a **separate git repo** nested in this one — its commits stay inside it.
 
 ## Commands

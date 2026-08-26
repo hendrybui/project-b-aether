@@ -1,0 +1,17 @@
+[Unit]
+Description=AudioMass API — rebuilt backend (FastAPI)
+After=network.target docker.service
+
+[Service]
+Type=simple
+WorkingDirectory=/mnt/Pandora/Project-B
+# Reuses the audiomass venv until a dedicated one is bootstrapped at cutover.
+# PORT: 5056 while the old backend holds 5055; flip to 5055 at cutover.
+Environment=AUDIOMASS_PORT=5056
+Environment=AUDIOMASS_DEMUCS_DOCKER_IMAGE=rocm64_gfx803_demucs:2.4
+ExecStart=/mnt/Pandora/Project-B/audiomass/.venv/bin/python -m uvicorn app:app --host 0.0.0.0 --port 5056 --app-dir backend
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target
