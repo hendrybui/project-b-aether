@@ -39,6 +39,9 @@ let heldSustained = new Set<number>();
 let currentAudioMassContext = '';
 const DEFAULT_AM_BASE = 'http://localhost:5055';
 let amBaseUrl = DEFAULT_AM_BASE;
+// Stem Mixer (the DAW frontend) — opened automatically after a bounce's
+// separation job is created, with ?job= so it auto-loads the stems.
+const DEFAULT_MIXER_URL = 'http://localhost:5058';
 
 // A fetch that never settles would wedge the job poller permanently (busy
 // stays true, every interval tick bails) — e.g. localhost resolving to a
@@ -812,13 +815,12 @@ async function bounceCurrentPattern(stemType: 'full' | 'drums' | 'synth'): Promi
         ? `Bounced ${stemType}${fmt} → uploaded to AudioMass, separating (job ${job.job_id.slice(0, 8)}…)`
         : `Bounced ${stemType}${fmt} → uploaded to AudioMass, separating…`;
     }
-    // Auto-open the AudioMass editor with the source audio pre-loaded.
-    // The ?job= param triggers auto-load.js in AudioMass to fetch and
-    // display the waveform without manual drag-and-drop.
+    // Auto-open the Stem Mixer with this job pre-loaded. The mixer's ?job=
+    // overlay polls until separation finishes, then one click loads the
+    // stems (roadmap 3.1 — the AudioMass editor is retired as a target).
     if (job?.job_id) {
-      const amBase = (amBaseUrl || DEFAULT_AM_BASE).replace(/\/+$/, '');
-      const editorUrl = `${amBase}/?job=${encodeURIComponent(job.job_id)}`;
-      window.open(editorUrl, 'aether-audiomass-editor');
+      const mixerUrl = `${DEFAULT_MIXER_URL}/?job=${encodeURIComponent(job.job_id)}`;
+      window.open(mixerUrl, 'aether-stem-mixer');
     }
   } catch (err) {
     const why = err instanceof Error ? err.message : String(err);
