@@ -1,40 +1,39 @@
-# AudioMass API — rebuilt backend
+# AudioMass API — the rebuilt backend
 
 FastAPI backend serving the REST contract in `../API-CONTRACT.md`.
-Moved + pruned from `audiomass/backend/` on 2026-08-27 (the old backend
-is slated for scrap; this is its replacement).
+Moved + pruned from the old `audiomass/backend/` (2026-08-27); the old
+backend AND editor were deleted at cutover — `audiomass/` is gone.
+Clients: Stem Mixer (:5058) and Aether (bounce upload).
 
-## Run (dev, :5056 — old backend keeps :5055 until cutover)
+## Run
+
+Served by systemd user unit `mass-backend.service` on **:5055** (the
+launcher starts/stops it). The unit sets
+`AUDIOMASS_DEMUCS_DOCKER_IMAGE=rocm64_gfx803_demucs:2.4` for GPU
+separation; without docker the pipeline falls back to the CPU worker.
 
 ```bash
-# CPU mode (demucs on host)
-AUDIOMASS_PORT=5056 ../audiomass/.venv/bin/python -m uvicorn app:app \
-  --host 0.0.0.0 --port 5056 --app-dir backend
-
-# GPU mode (ROCm warm pool in docker — RX 580)
-AUDIOMASS_PORT=5056 AUDIOMASS_DEMUCS_DOCKER_IMAGE=rocm64_gfx803_demucs:2.4 \
-  ../audiomass/.venv/bin/python -m uvicorn app:app --host 0.0.0.0 --port 5056 --app-dir backend
+systemctl --user start mass-backend    # or: ./run-aether-with-audiomass.sh start
+# manual: AUDIOMASS_DEMUCS_DOCKER_IMAGE=rocm64_gfx803_demucs:2.4 \
+#   backend/.venv/bin/python -m uvicorn app:app --host 0.0.0.0 --port 5055 --app-dir backend
 ```
-
-systemd template: `../systemd/mass-backend.service`.
 
 ## Venv
 
-Reuses `../audiomass/.venv` for now (everything needed is installed:
-fastapi, uvicorn, sse-starlette, librosa, torch, demucs, basic-pitch).
-At cutover, bootstrap a dedicated venv from `requirements.txt` and drop
-the audiomass one with the rest of the old backend.
+`backend/.venv` — dedicated copy (everything installed: fastapi, uvicorn,
+sse-starlette, librosa, torch, demucs, basic-pitch, flask for the DJ
+Toolkit). Rebuild from `requirements.txt` if ever needed.
 
 ## Tests
 
 ```bash
-PYTHONPATH=backend ../audiomass/.venv/bin/python -m unittest discover -s backend/tests -v
+PYTHONPATH=backend backend/.venv/bin/python -m unittest discover -s backend/tests -v
 # 61 tests — plugin internals, pipeline progress/cancel/teardown. No GPU/docker needed.
 ```
 
 ## Paths (utils/paths.py)
 
 - `JOBS_DIR` — env `AUDIOMASS_JOBS_DIR`, default `/mnt/Pandora/Music/Audiamass`
-  (shared with the old backend → existing jobs stay visible).
-- Static frontend — `audiomass/src/` (served same-origin at `/` for the
-  `?job=` deep-link; edit `SRC_DIR` in `app.py` if the frontend moves).
+  (all existing separations intact — shared with the old backend).
+- `/` returns a JSON pointer to the mixer (the old editor static mount is gone).
+- `docker/Dockerfile.demucs-rocm` — recipe to rebuild the ROCm GPU image.

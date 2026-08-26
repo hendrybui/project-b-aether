@@ -1,0 +1,26 @@
+# HTDemucs layer for the gfx803 (RX 580) ROCm PyTorch container.
+#
+# The base image is the from-source ROCm 6.4 + PyTorch 2.4 build documented
+# in /mnt/Pandora/Workshop/GFX803_Rocm (image rocm64_gfx803_pytorch:2.4),
+# which is the only way to get real GPU acceleration on this Polaris card —
+# host torch has no working backend for it.
+#
+# Build (one-time, ~2-5 min):
+#   docker build -f Dockerfile.demucs-rocm -t rocm64_gfx803_demucs:2.4 .
+#
+# Then run AudioMass with:
+#   AUDIOMASS_DEMUCS_DOCKER_IMAGE=rocm64_gfx803_demucs:2.4
+# The plugin falls back to the local CPU worker automatically whenever
+# docker/daemon/image is unavailable, so this stays optional.
+FROM rocm64_gfx803_pytorch:2.4
+
+# demucs (model + audio I/O) and the worker's direct deps. The ROCm build is
+# installed with --break-system-packages, so match that. PyTorch itself is
+# already present from the base — pip must not replace it with a CUDA wheel.
+RUN pip3 install --no-cache-dir --break-system-packages \
+        'demucs>=4.0.1' \
+        soundfile
+
+# The worker is bind-mounted read-only from the host backend dir at its host
+# path (see docker_runtime.py) — no image copy needed. The default entrypoint
+# (python3) is what docker_runtime invokes with demucs_worker.py.

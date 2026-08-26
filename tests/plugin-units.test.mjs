@@ -1,9 +1,9 @@
-// Thin wrapper running the AudioMass backend's host-side Python unit tests
-// (audiomass/tests/test_htdemucs_plugin.py) inside the node test runner, so
-// `npm test` covers the htdemucs plugin's pure logic — stats parsing, pool
-// stats load/persist — without a GPU, docker, or a running server. The venv
-// python and PYTHONPATH conventions mirror the other AudioMass scenarios
-// (see audiomass-cancel.test.mjs).
+// Thin wrapper running the rebuilt backend's host-side Python unit tests
+// (backend/tests/test_*.py) inside the node test runner, so `npm test`
+// covers plugin pure logic — stats parsing, pool stats load/persist,
+// pipeline progress/cancel/teardown — without a GPU, docker, or a running
+// server. Cutover 2026-08-27: the old audiomass/ tree is deleted; the
+// backend lives at backend/ with its own .venv.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
@@ -13,13 +13,13 @@ import { fileURLToPath } from 'node:url'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const AM_PYTHON =
-  process.env.AUDIOMASS_PYTHON ?? path.join(ROOT, 'audiomass', '.venv', 'bin', 'python')
-const BACKEND_DIR = path.join(ROOT, 'audiomass', 'backend')
-const TESTS_DIR = path.join(ROOT, 'audiomass', 'tests')
+  process.env.AUDIOMASS_PYTHON ?? path.join(ROOT, 'backend', '.venv', 'bin', 'python')
+const BACKEND_DIR = path.join(ROOT, 'backend')
+const TESTS_DIR = path.join(ROOT, 'backend', 'tests')
 
-test('htdemucs plugin unit tests pass host-side (no GPU needed)', () => {
+test('backend plugin unit tests pass host-side (no GPU needed)', () => {
   if (!fs.existsSync(AM_PYTHON)) {
-    throw new Error(`AudioMass venv python not found at ${AM_PYTHON} (install audiomass/.venv)`)
+    throw new Error(`backend venv python not found at ${AM_PYTHON} (see backend/README.md)`)
   }
   const run = spawnSync(
     AM_PYTHON,

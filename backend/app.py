@@ -1,19 +1,11 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
-from pathlib import Path
 
 from api.jobs import router as jobs_router
 from api.projects import router as projects_router
 from api.streams import router as streams_router
 from api.source import router as source_router
 from services.job_service import job_service
-from utils.paths import ROOT
-
-# The AudioMass editor frontend still lives in the audiomass/ sub-project
-# (only the backend was rebuilt). Serve it same-origin so the ?job= deep-link
-# (src/auto-load.js) and relative /api calls keep working.
-SRC_DIR = ROOT / "audiomass" / "src"
 
 
 def create_app() -> FastAPI:
@@ -49,8 +41,16 @@ def create_app() -> FastAPI:
             "active_job": job_service.get_job(job_service._active_job_id).model_dump() if job_service._active_job_id else None,
         }
 
-    # Serve AudioMass static files (must be last — catch-all)
-    app.mount("/", StaticFiles(directory=str(SRC_DIR), html=True), name="static")
+    # The retired AudioMass editor used to be mounted here. This API now has
+    # exactly two clients: the Stem Mixer (:5058, hardcodes :5055) and Aether
+    # (bounce upload). Point humans at the mixer.
+    @app.get("/")
+    async def root() -> dict:
+        return {
+            "service": "audiomass-api",
+            "status": "ok",
+            "clients": {"mixer": "http://localhost:5058", "aether": "http://localhost/aether/"},
+        }
 
     return app
 

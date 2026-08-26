@@ -2,19 +2,18 @@
 
 Guidance for OpenCode agents working in this workspace.
 
-**Aether** (repo root): AI-assisted web synth + step sequencer (Vite + TypeScript + Tone.js). Pairs with **AudioMass** (Python, `audiomass/`) for a local "generate → edit" music environment. `CLAUDE.md` documents the architecture in detail; `README.md` covers workflow/features. Don't duplicate those docs here.
+**Aether** (repo root): AI-assisted web synth + step sequencer (Vite + TypeScript + Tone.js). Pairs with the **AudioMass API** (`backend/`, rebuilt FastAPI) and the **Stem Mixer** (`mixer/`, the DAW frontend) for a local "generate → separate → mix" music environment. `CLAUDE.md` documents the architecture in detail; `README.md` covers workflow/features. Don't duplicate those docs here.
 
-## Backend rebuild (2026-08-27) — pickup guide
+## Backend rebuild (2026-08-27) — CUTOVER COMPLETE
 
-The AudioMass **Python backend is scrapped**; the **editor frontend and mixer are kept**. A new backend serves the same REST contract.
+The old AudioMass backend AND editor are **deleted** (`audiomass/` gone; safety archive at `backups/audiomass-archive-2026-08-27.tar.gz` — its own git history is inside). The API now has exactly two clients: the **Stem Mixer** (the DAW frontend) and **Aether** (bounce upload).
 
-- **Status: new backend BUILT & verified** — `backend/` at root (FastAPI, moved + pruned from `audiomass/backend/`), running on **:5056** in dev while the old backend holds :5055. End-to-end verified: CPU + ROCm warm-pool GPU separation, manifest/stems/SSE routes, 61/61 unit tests (`PYTHONPATH=backend audiomass/.venv/bin/python -m unittest discover -s backend/tests -v`). See `backend/README.md`.
-- **Vision (Henry, 2026-08-27): the MIXER is the DAW frontend.** AudioMass editor is a dead app for mixing — it retires at cutover; the beat-spike stem waveforms in the mixer are the product. Aether bounce → backend separation → mixer auto-opens with `?job=ID` (polls progress, click-to-load — wired 2026-08-27).
-- **Spec:** `API-CONTRACT.md` (repo root) — every route, consumer call-site, the job state machine, and what's internal/reusable (ROCm demucs image, smoke-test script).
-- **Ownership split:** backend work happens in `backend/`; mixer-frontend work is `mixer/ROADMAP.md` phases 2.3/2.4/3.1. The two streams don't collide — the contract is the interface.
-- **Cutover (when user confirms parity in browser):** stop `audiomass.service`, flip `systemd/mass-backend.service` to :5055 + `systemctl --user enable --now mass-backend`, bootstrap a dedicated venv (`backend/requirements.txt`), point the launcher's `start_audiomass` at the new unit. Then delete: `audiomass/src/audiomass-server.py`, `audiomass/backend/`, `tests/audiomass-*.test.mjs`, `scripts/check-demucs-gpu.sh`.
-- **Reuse, don't rebuild:** the `rocm64_gfx803_demucs:2.4` image + warm-pool concept (GPU model load is ~40s; warm reuse matters on the RX 580) — both already inherited by the new backend.
-- **Gotcha:** both backends listen as `uvicorn app:app` — never bare-`pkill uvicorn app:app` (kills both); match the port (`pkill -f "[u]vicorn.*5056"`).
+- **The backend is `backend/` at root** — FastAPI, moved + pruned, own venv (`backend/.venv`), served by systemd user unit `mass-backend.service` on **:5055** (launcher starts/stops it). Editor static mount removed; `/` returns a JSON pointer to the mixer.
+- **Spec:** `API-CONTRACT.md` (repo root) — every route, consumer call-site, the job state machine.
+- **Verified at cutover:** CPU + ROCm warm-pool GPU separation end-to-end on :5055 through `backend/.venv`, 61/61 unit tests (`PYTHONPATH=backend backend/.venv/bin/python -m unittest discover -s backend/tests -v`).
+- **Jobs data:** `AUDIOMASS_JOBS_DIR` (default `/mnt/Pandora/Music/Audiamass`) — shared, all existing separations intact. `backend/docker/` holds the `Dockerfile.demucs-rocm` to rebuild the GPU image.
+- **DJ Toolkit** now uses `backend/.venv` (flask + basic-pitch live there).
+- **Ownership split:** backend work in `backend/`; DAW-frontend work in `mixer/ROADMAP.md` (next: 2.3 clip drag, 2.4 loop markers). The contract is the interface.
 - `mixer/` is a **separate git repo** nested in this one — its commits stay inside it.
 
 ## Commands
@@ -34,7 +33,7 @@ node --test tests/plugin-units.test.mjs    # single test file
 ## Tests (node:test, no framework)
 
 - `smoke-audio.test.mjs` spawns its own Vite dev server on a free port and drives it via playwright-core + system Chrome (`AETHER_TEST_CHROME`, default `/usr/bin/google-chrome-stable`); set `AETHER_TEST_URL` to reuse an already-running server.
-- `audiomass-*.test.mjs` are warm-pool supervisor integration tests (CPU mode) using `audiomass/.venv/bin/python` (override with `AUDIOMASS_PYTHON`) — they exercise the **old** backend slated for scrap; expect them to go with it.
+- The old `audiomass-*.test.mjs` warm-pool tests were deleted with the old backend (2026-08-27); Python-side tests live in `backend/tests` (61, no GPU/docker needed).
 - Concurrency is pinned to 1 because tests spawn real servers.
 - 2026-08-27: `tests/` is deleted in the uncommitted working tree but tracked in git — `git restore tests/` before `npm test`.
 
@@ -50,8 +49,8 @@ node --test tests/plugin-units.test.mjs    # single test file
 ## Repo layout (mixed root — don't "clean up" without asking)
 
 - `src/` — Aether: `audio/` (`engine.ts` synth, `drumKit.ts` drums, `paramMap.ts` 0-1 → real-unit maps), `sequencer/stepSequencer.ts` (Transport-driven clock + note-storing pattern), `ai/` (`ollama.ts` LLM bridge, `patchGenerator.ts`, `melodyGenerator.ts`, `sequenceGenerators.ts`), `ui/` (`knob.ts`, `keyboard.ts`), `main.ts` (wires everything)
-- `audiomass/` — **backend is being replaced** (decided 2026-08-27): the web editor frontend is retained, the Python backend (`src/audiomass-server.py`, `backend/adapters` warm pool, demucs pipeline) is slated for scrap — don't fix or extend it. Own CLAUDE.md, ROADMAP.md, run.sh, `.venv`; treat as a sub-project
-- `mixer/` — new stem-mixer frontend for the rebuild (vanilla JS + Tone.js from CDN, **no build step**, own git repo); Phase 2 done, Phase 3.3/3.4 wired 2026-08-27. Talks to the AudioMass REST API on :5055 (`/api/jobs`, `/api/jobs/{id}/manifest`, `/stems/{name}`, `/source`) — that endpoint set is the **contract the new backend must serve**. Served on :5058 (NOT 5060 — browsers hard-block it with `ERR_UNSAFE_PORT`) by systemd user unit `mixer.service`, started/stopped by the launcher; Caddy route `/mixer`
+- `backend/` — the AudioMass API (rebuilt FastAPI; see "Backend rebuild" section above). Own venv, tests, docker image recipe.
+- `mixer/` — the Stem Mixer / DAW frontend (see above).
 - `melody-suite/`, `dj_toolkit/`, `music-tools/` — launcher-managed sub-projects; don't fold them into the Aether tree
 - `scripts/` — launcher helpers (`start-llama-gpu.sh`, `seed-llm-config.sh`, `check-*.sh`); `check-demucs-gpu.sh` smoke-tests the **old** demucs warm pool (nightly timer deleted 2026-08-26 — manual runs only)
 - `exports/`, `samples/` — shared Aether↔AudioMass handoff folders, auto-created by the launcher; bounced WAVs (`aether-*-to-audiomass.wav`) go to `exports/`
@@ -76,7 +75,7 @@ node --test tests/plugin-units.test.mjs    # single test file
 ## Before editing sensitive areas
 
 - Audio engine / scheduling → `CLAUDE.md` "Architecture" + "Key Patterns" and `src/audio/paramMap.ts`
-- `audiomass/` → `audiomass/CLAUDE.md` and `audiomass/ROADMAP.md`
+- Backend / separation pipeline → `API-CONTRACT.md` and `backend/README.md`
 - Launcher/proxy → header comments of `run-aether-with-audiomass.sh` and `/mnt/Pandora/caddy/Caddyfile`
 
 ## Review workflow (when user asks "review the project")

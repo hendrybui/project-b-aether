@@ -293,27 +293,22 @@ dry_run() {
 
   # --- AudioMass ---
   echo "[AudioMass]"
-  if [ -d "$AUDIOMASS_DIR" ]; then
-    check "audiomass/ directory" ok
+  if [ -d "$PROJECT_ROOT/backend" ]; then
+    check "backend/ directory" ok
   else
-    check "audiomass/ directory" fail "not found"
+    check "backend/ directory" fail "not found"
   fi
 
-  local am_py="$AUDIOMASS_DIR/.venv/bin/python"
+  local am_py="$PROJECT_ROOT/backend/.venv/bin/python"
   if [ -x "$am_py" ]; then
-    check "AudioMass venv python" ok
+    check "backend venv python" ok
+    if "$am_py" -c 'import fastapi, uvicorn' 2>/dev/null; then
+      check "FastAPI + uvicorn in backend venv" ok
+    else
+      check "FastAPI + uvicorn" warn "not in venv — run: backend/.venv/bin/pip install -r backend/requirements.txt"
+    fi
   else
-    check "AudioMass venv" warn "missing — run: cd audiomass && ./run.sh setup"
-  fi
-
-  # NOTE: AudioMass backend is plain stdlib (audiomass-server.py) — no
-  # FastAPI/uvicorn needed. The whole backend is slated for replacement
-  # (2026-08-27); the REST contract it serves is what the new backend
-  # must reproduce (see mixer/ROADMAP.md).
-  if [ -f "$AUDIOMASS_DIR/src/audiomass-server.py" ]; then
-    check "stdlib server (audiomass-server.py)" ok
-  else
-    check "stdlib server" warn "audiomass-server.py not found"
+    check "backend venv" warn "missing — copy or bootstrap one (see backend/README.md)"
   fi
 
   echo ""
@@ -373,7 +368,7 @@ dry_run() {
   echo "[Companion Apps]"
   if [ -d "$DJ_TOOLKIT_DIR" ]; then
     check "DJ Toolkit directory" ok
-    if [ -x "$AUDIOMASS_DIR/.venv/bin/python" ]; then
+    if [ -x "$PROJECT_ROOT/backend/.venv/bin/python" ]; then
       check "DJ Toolkit uses AudioMass venv" ok
     fi
   else
@@ -467,24 +462,27 @@ start_aether_dev() {
 }
 
 start_audiomass() {
-  log "→ Starting AudioMass on :$AUDIOMASS_PORT ..."
+  log "→ Starting AudioMass API (rebuilt backend) on :$AUDIOMASS_PORT ..."
 
-  # Try systemd first (survives shell exit reliably), fall back to nohup
-  local SVC="$HOME/.config/systemd/user/audiomass.service"
+  # The rebuilt backend (backend/, FastAPI) — served by mass-backend.service.
+  # The old audiomass.service + audiomass/backend/ were scrapped at cutover
+  # (2026-08-27). See API-CONTRACT.md for what this API serves.
+  local SVC="$HOME/.config/systemd/user/mass-backend.service"
   if command -v systemctl &>/dev/null && [ -f "$SVC" ]; then
-    systemctl --user start audiomass.service 2>/dev/null && {
-      log "   AudioMass started via systemd"
-      log "   Direct: http://localhost:$AUDIOMASS_PORT"
-      log "   Via proxy: http://localhost/mass  (or /audiomass)"
+    systemctl --user start mass-backend.service 2>/dev/null && {
+      log "   AudioMass API started via systemd (mass-backend.service)"
+      log "   Direct: http://localhost:$AUDIOMASS_PORT   (consumers: mixer :5058, Aether bounce)"
       return 0
     }
     log "   systemd start failed, falling back to nohup"
+  else
+    log "   systemd unit missing ($SVC) — copy systemd/mass-backend.service from the repo"
   fi
 
-  # Fallback: nohup
-  if [ ! -f "$AUDIOMASS_DIR/run.sh" ]; then
-    log "ERROR: audiomass/run.sh not found at $AUDIOMASS_DIR"
-    exit 1
+  # Fallback: nohup (same env as the unit)
+  if [ ! -x "$PROJECT_ROOT/backend/.venv/bin/python" ]; then
+    log "ERROR: backend/.venv missing — bootstrap it (see backend/README.md)"
+    return 1
   fi
 
   if [ -f "$AUDIOMASS_PIDFILE" ]; then
@@ -493,13 +491,14 @@ start_audiomass() {
   fi
   pkill -f "uvicorn.*$AUDIOMASS_PORT" 2>/dev/null || true
 
-  nohup env AUDIOMASS_PORT="$AUDIOMASS_PORT" AUDIOMASS_DEMUCS_DOCKER_IMAGE="$DEMUCS_IMAGE" "$AUDIOMASS_DIR/run.sh" start > "$AUDIOMASS_LOG" 2>&1 &
+  nohup env AUDIOMASS_PORT="$AUDIOMASS_PORT" AUDIOMASS_DEMUCS_DOCKER_IMAGE="$DEMUCS_IMAGE" \
+    "$PROJECT_ROOT/backend/.venv/bin/python" -m uvicorn app:app \
+    --host 0.0.0.0 --port "$AUDIOMASS_PORT" --app-dir backend > "$AUDIOMASS_LOG" 2>&1 &
   local pid=$!
   echo "$pid" > "$AUDIOMASS_PIDFILE"
 
-  log "   AudioMass PID: $pid (logs: $AUDIOMASS_LOG)"
-  log "   Direct: http://localhost:$AUDIOMASS_PORT"
-  log "   Via proxy: http://localhost/mass  (or /audiomass)"
+  log "   AudioMass API PID: $pid (logs: $AUDIOMASS_LOG)"
+  log "   http://localhost:$AUDIOMASS_PORT"
 }
 
 start_dj_toolkit() {
@@ -509,9 +508,9 @@ start_dj_toolkit() {
     log "ERROR: dj_toolkit/ not found at $DJ_TOOLKIT_DIR — skipping (keep it locally next to audiomass/)."
     return 1
   fi
-  local venv_py="$AUDIOMASS_DIR/.venv/bin/python"
+  local venv_py="$PROJECT_ROOT/backend/.venv/bin/python"
   if [ ! -x "$venv_py" ]; then
-    log "ERROR: $venv_py missing — DJ Toolkit needs the audiomass venv (flask + basic-pitch). Skipping."
+    log "ERROR: $venv_py missing — DJ Toolkit needs the backend venv (flask + basic-pitch). Skipping."
     return 1
   fi
 
@@ -520,7 +519,7 @@ start_dj_toolkit() {
     kill "$(cat "$DJ_TOOLKIT_PIDFILE" 2>/dev/null)" 2>/dev/null || true
     rm -f "$DJ_TOOLKIT_PIDFILE"
   fi
-  pkill -f "audiomass/.venv/bin/python app.py" 2>/dev/null || true
+  pkill -f "backend/.venv/bin/python app.py" 2>/dev/null || true
 
   cd "$DJ_TOOLKIT_DIR"
   nohup env DJ_TOOLKIT_PORT="$DJ_TOOLKIT_PORT" "$venv_py" app.py > "$DJ_TOOLKIT_LOG" 2>&1 &
@@ -709,10 +708,10 @@ stop_aether() {
 }
 
 stop_audiomass() {
-  log "Stopping AudioMass..."
+  log "Stopping AudioMass API (mass-backend)..."
   # Stop systemd service if present
-  if command -v systemctl &>/dev/null && systemctl --user is-active audiomass.service &>/dev/null; then
-    systemctl --user stop audiomass.service 2>/dev/null || true
+  if command -v systemctl &>/dev/null && systemctl --user is-active mass-backend.service &>/dev/null; then
+    systemctl --user stop mass-backend.service 2>/dev/null || true
   fi
   # Also kill any orphaned processes
   if [ -f "$AUDIOMASS_PIDFILE" ]; then
@@ -725,9 +724,8 @@ stop_audiomass() {
     fi
     rm -f "$AUDIOMASS_PIDFILE"
   fi
-  pkill -f "audiomass-server.py" 2>/dev/null || true
   pkill -f "uvicorn.*$AUDIOMASS_PORT" 2>/dev/null || true
-  log "  AudioMass stopped."
+  log "  AudioMass API stopped."
 }
 
 stop_dj_toolkit() {
@@ -742,7 +740,7 @@ stop_dj_toolkit() {
     fi
     rm -f "$DJ_TOOLKIT_PIDFILE"
   fi
-  pkill -f "audiomass/.venv/bin/python app.py" 2>/dev/null || true
+  pkill -f "backend/.venv/bin/python app.py" 2>/dev/null || true
   log "  DJ Toolkit stopped."
 }
 
@@ -891,7 +889,7 @@ status() {
   [ -f "$DJ_TOOLKIT_PIDFILE" ] && dpid=$(cat "$DJ_TOOLKIT_PIDFILE" 2>/dev/null || true)
   if [ -n "$dpid" ] && kill -0 "$dpid" 2>/dev/null; then
     echo "  RUNNING   pid=$dpid (pidfile)"
-  elif pgrep -f "audiomass/.venv/bin/python app.py" >/dev/null 2>&1; then
+  elif pgrep -f "backend/.venv/bin/python app.py" >/dev/null 2>&1; then
     echo "  RUNNING   (pgrep match)"
     pgrep -af "app.py" 2>/dev/null | grep -i dj_toolkit | head -1 | sed 's/^/    /'
   else
@@ -1003,7 +1001,7 @@ case "${1:-start}" in
     log "  /aether/llm-seed.json     → cloud-LLM seed for fresh browsers (auto-applied on load; cleaned on stop)"
     log ""
     log "Handoff (no gaps): In Aether use BOUNCE buttons for stems/full WAV (named aether-*-to-audiomass.wav)."
-    log "  Drop to $PROJECT_ROOT/exports/ or audiomass/jobs/_incoming/ for instant import."
+    log "  Drop to $PROJECT_ROOT/exports/ or /mnt/Pandora/Music/Audiamass/_incoming/ for instant import."
     log "  Load back in Aether via file input in the bounce section for preview/noise boost."
     log "  Exports and samples folders created automatically for roundtrips."
     log ""
