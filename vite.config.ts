@@ -14,6 +14,7 @@ export default defineConfig({
         '**/splinter-x/**',
         '**/dj_toolkit/**',
         '**/music-tools/**',
+        '**/melody-suite/**',
         '**/PROJECT_X-Splinter/**',
         '**/backups/**',
         '**/dist/**',

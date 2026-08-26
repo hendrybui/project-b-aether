@@ -8,6 +8,9 @@
 # - Music Tools: music-tools/run.sh (static) on 8091 — melody generator / audio-to-sheet
 # - Open WebUI: ~/webui/start-webui.sh (venv) on 3000 — LLM hub / chat / tools (Caddy catch-all route)
 # - Caddy: intelligently start/stop/restart using /mnt/Pandora/caddy/Caddyfile if not running or config hash changed.
+#   If a system-managed Caddy (systemd caddy.service, /etc/caddy/Caddyfile) already owns :80 with an
+#   identical config, the script adopts it instead of double-binding; on config drift it tries to
+#   sync + restart the service via sudo -n, else prints the manual sync command.
 #   Uses pidfiles + config hash in /tmp for reliable management across sessions.
 #   Tries direct then sudo -n; continues even if Caddy bind fails (direct ports still work).
 #
@@ -31,15 +34,18 @@ AUDIOMASS_DIR="$PROJECT_ROOT/audiomass"
 DJ_TOOLKIT_DIR="$PROJECT_ROOT/dj_toolkit"
 MUSIC_TOOLS_DIR="$PROJECT_ROOT/music-tools"
 MELODY_SUITE_DIR="$PROJECT_ROOT/melody-suite"
-LLAMA_GPU_SCRIPT="$PROJECT_ROOT/start-llama-gpu.sh"
-SEED_LLM_SCRIPT="$PROJECT_ROOT/seed-llm-config.sh"
+MIXER_DIR="$PROJECT_ROOT/mixer"
+MIXER_SERVICE="mixer.service"
+MIXER_PORT=5058   # NOT 5060 — browsers hard-block 5060 (SIP) with ERR_UNSAFE_PORT
+LLAMA_GPU_SCRIPT="$PROJECT_ROOT/scripts/start-llama-gpu.sh"
+SEED_LLM_SCRIPT="$PROJECT_ROOT/scripts/seed-llm-config.sh"
 CADDY_CONFIG="/mnt/Pandora/caddy/Caddyfile"
 
 AETHER_PORT=5173
 AUDIOMASS_PORT=5055
 DJ_TOOLKIT_PORT=5001
 MUSIC_TOOLS_PORT=8091
-MELODY_SUITE_PORT=5000
+MELODY_SUITE_PORT=5002
 # ROCm demucs image for the AudioMass GPU warm pool (audiomass/backend/adapters/docker_runtime.py).
 # The server degrades to the local CPU worker if docker/daemon/image is unavailable,
 # so this is safe to always set; the pool idle-evicts after 600s of no jobs.
@@ -79,25 +85,17 @@ log() {
 # /mnt/Pandora. If the mount moved (udisks auto-mount, fstab edit, drive
 # crash), starting would silently half-break everything. Fail loudly instead.
 guard_pandora_mount() {
-  if ! "$PROJECT_ROOT/check-pandora-mount.sh" 2>&1; then
-    log "ERROR: Pandora drive is not at /mnt/Pandora — refusing to start."
-    log "Run the fix printed above (or /usr/local/bin/check-pandora-mount.sh), then retry."
-    exit 1
+  if ! "$PROJECT_ROOT/scripts/check-pandora-mount.sh" 2>&1; then
+    log "WARNING: Pandora drive is not at /mnt/Pandora — some features may be unavailable."
+    log "Run the fix printed above (or /usr/local/bin/check-pandora-mount.sh) when convenient."
+    return 0
   fi
 }
 
 check_caddy_installed() {
   if ! command -v caddy >/dev/null 2>&1; then
-    log "ERROR: caddy not found in PATH."
-    cat <<'EOF'
-Install Caddy (run once):
-  curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/setup.deb.sh' | sudo bash
-  sudo apt install -y caddy
-  # Grant capability so non-root user can bind port 80 (avoids sudo on every start):
-  sudo setcap 'cap_net_bind_service=+ep' "$(command -v caddy 2>/dev/null || echo /usr/bin/caddy)"
-Re-run this script after install. (You can still start apps on direct ports without Caddy.)
-EOF
-    exit 1
+    log "WARNING: caddy not found in PATH — proxy will be unavailable (direct ports still work)."
+    return 1
   fi
 }
 
@@ -120,6 +118,23 @@ caddy_config_hash() {
   else
     echo "missing-config-file"
   fi
+}
+
+# Echo "pid config_path" for a running Caddy we did NOT start (e.g. the
+# systemd caddy.service with /etc/caddy/Caddyfile), if any. Empty otherwise.
+external_caddy_line() {
+  local pid cfg
+  for pid in $(pgrep -x caddy 2>/dev/null); do
+    [ -r "/proc/$pid/cmdline" ] || continue
+    cfg=$(tr '\0' '\n' < "/proc/$pid/cmdline" 2>/dev/null \
+      | awk '/^--config=/{sub(/^--config=/,""); print; exit} /^--config$/{getline; print; exit}')
+    [ -n "$cfg" ] || continue
+    if [ "$cfg" != "$CADDY_CONFIG" ]; then
+      echo "$pid $cfg"
+      return 0
+    fi
+  done
+  return 0
 }
 
 stop_caddy_internal() {
@@ -167,6 +182,31 @@ ensure_caddy() {
   fi
 
   if [ $need_restart -eq 1 ]; then
+    # Adopt an externally managed Caddy (e.g. systemd caddy.service) when it
+    # already owns :80 and serves a config identical to ours — starting a
+    # second Caddy would just fail to bind.
+    local ext_line ext_pid ext_cfg ext_hash
+    ext_line=$(external_caddy_line || true)
+    if [ -n "$ext_line" ]; then
+      ext_pid=${ext_line%% *}
+      ext_cfg=${ext_line#* }
+      ext_hash=$( [ -f "$ext_cfg" ] && sha256sum "$ext_cfg" | awk '{print $1}' || echo "no-file" )
+      if [ "$ext_hash" = "$current_hash" ]; then
+        log "   Using externally managed Caddy (pid $ext_pid, config $ext_cfg — identical to ours)."
+        echo "$current_hash" > "$CADDY_HASHFILE"
+        return 0
+      fi
+      log "   NOTE: external Caddy (pid $ext_pid) serves $ext_cfg, which differs from $CADDY_CONFIG."
+      if sudo -n cp "$CADDY_CONFIG" "$ext_cfg" 2>/dev/null && sudo -n systemctl restart caddy 2>/dev/null; then
+        sleep 1
+        log "   Synced $ext_cfg from ours and restarted the caddy system service."
+        echo "$current_hash" > "$CADDY_HASHFILE"
+        return 0
+      fi
+      log "   Could not auto-sync (needs passwordless sudo). Sync it manually:"
+      log "   sudo cp '$CADDY_CONFIG' '$ext_cfg' && sudo systemctl restart caddy"
+    fi
+
     log "   (Re)starting Caddy..."
     stop_caddy_internal
 
@@ -203,6 +243,192 @@ ensure_caddy() {
   else
     log "   Caddy already running with up-to-date config (pid: $pid)"
   fi
+}
+
+dry_run() {
+  echo "========================================"
+  log "=== DRY RUN: Checking all dependencies ==="
+  echo "Project root: $PROJECT_ROOT"
+  echo "Timestamp: $(date)"
+  echo ""
+
+  local ok=0 warn=0 fail=0
+
+  check() {
+    local label="$1" status="$2" detail="${3:-}"
+    case "$status" in
+      ok)   echo "  ✓ $label"; ((ok++)) || true ;;
+      warn) echo "  ⚠ $label — $detail"; ((warn++)) || true ;;
+      fail) echo "  ✗ $label — $detail"; ((fail++)) || true ;;
+    esac
+  }
+
+  # --- Core ---
+  echo "[Core]"
+  if "$PROJECT_ROOT/scripts/check-pandora-mount.sh" >/dev/null 2>&1; then
+    check "Pandora drive mounted at /mnt/Pandora" ok
+  else
+    check "Pandora drive" fail "not at /mnt/Pandora — mount it or run: sudo mount -a"
+  fi
+
+  if [ -d "$AETHER_DIR/node_modules" ]; then
+    check "node_modules/ exists" ok
+  else
+    check "node_modules/" warn "missing — npm install will run on first start"
+  fi
+
+  if [ -f "$AETHER_DIR/package.json" ] && command -v node >/dev/null 2>&1; then
+    check "Node.js $(node -v)" ok
+  else
+    check "Node.js" fail "not found in PATH"
+  fi
+
+  if command -v npm >/dev/null 2>&1; then
+    check "npm $(npm -v)" ok
+  else
+    check "npm" fail "not found in PATH"
+  fi
+
+  echo ""
+
+  # --- AudioMass ---
+  echo "[AudioMass]"
+  if [ -d "$AUDIOMASS_DIR" ]; then
+    check "audiomass/ directory" ok
+  else
+    check "audiomass/ directory" fail "not found"
+  fi
+
+  local am_py="$AUDIOMASS_DIR/.venv/bin/python"
+  if [ -x "$am_py" ]; then
+    check "AudioMass venv python" ok
+  else
+    check "AudioMass venv" warn "missing — run: cd audiomass && ./run.sh setup"
+  fi
+
+  # NOTE: AudioMass backend is plain stdlib (audiomass-server.py) — no
+  # FastAPI/uvicorn needed. The whole backend is slated for replacement
+  # (2026-08-27); the REST contract it serves is what the new backend
+  # must reproduce (see mixer/ROADMAP.md).
+  if [ -f "$AUDIOMASS_DIR/src/audiomass-server.py" ]; then
+    check "stdlib server (audiomass-server.py)" ok
+  else
+    check "stdlib server" warn "audiomass-server.py not found"
+  fi
+
+  echo ""
+
+  # --- Caddy ---
+  echo "[Caddy]"
+  if command -v caddy >/dev/null 2>&1; then
+    check "caddy binary" ok
+  else
+    check "caddy" warn "not installed — proxy unavailable (direct ports still work)"
+  fi
+
+  if [ -f "$CADDY_CONFIG" ]; then
+    check "Caddyfile at $CADDY_CONFIG" ok
+  else
+    check "Caddyfile" warn "not found at $CADDY_CONFIG"
+  fi
+
+  local cpid
+  cpid=$(get_caddy_pid || true)
+  if [ -n "$cpid" ] && kill -0 "$cpid" 2>/dev/null; then
+    check "Caddy running (pid $cpid)" ok
+  else
+    check "Caddy running" warn "not running — will start on launch"
+  fi
+
+  echo ""
+
+  # --- GPU / LLM ---
+  echo "[GPU & LLM]"
+  if [ -x "$LLAMA_GPU_SCRIPT" ]; then
+    check "start-llama-gpu.sh" ok
+  else
+    check "GPU LLM script" warn "not found — Aether will use Ollama CPU fallback"
+  fi
+
+  if command -v ollama >/dev/null 2>&1; then
+    check "Ollama installed" ok
+    if curl -sS --max-time 2 http://localhost:11434/api/tags >/dev/null 2>&1; then
+      check "Ollama server running" ok
+    else
+      check "Ollama server" warn "not running on :11434"
+    fi
+  else
+    check "Ollama" warn "not installed"
+  fi
+
+  if [ -x "$SEED_LLM_SCRIPT" ]; then
+    check "seed-llm-config.sh" ok
+  else
+    check "Cloud-LLM seed script" warn "not found"
+  fi
+
+  echo ""
+
+  # --- Companion apps ---
+  echo "[Companion Apps]"
+  if [ -d "$DJ_TOOLKIT_DIR" ]; then
+    check "DJ Toolkit directory" ok
+    if [ -x "$AUDIOMASS_DIR/.venv/bin/python" ]; then
+      check "DJ Toolkit uses AudioMass venv" ok
+    fi
+  else
+    check "DJ Toolkit" warn "dj_toolkit/ not found — skipped"
+  fi
+
+  if [ -d "$MUSIC_TOOLS_DIR" ] && [ -f "$MUSIC_TOOLS_DIR/run.sh" ]; then
+    check "Music Tools" ok
+  else
+    check "Music Tools" warn "music-tools/ or run.sh not found — skipped"
+  fi
+
+  if [ -d "$MELODY_SUITE_DIR" ]; then
+    check "Melody Suite directory" ok
+    if [ -x "$MELODY_SUITE_DIR/.venv/bin/python" ]; then
+      check "Melody Suite venv" ok
+    else
+      check "Melody Suite venv" warn "will be created on first start"
+    fi
+  else
+    check "Melody Suite" warn "melody-suite/ not found — skipped"
+  fi
+
+  if [ -x "$WEBUI_START_SCRIPT" ]; then
+    check "Open WebUI start script" ok
+  else
+    check "Open WebUI" warn "~/webui/start-webui.sh not found — skipped"
+  fi
+
+  echo ""
+
+  # --- Ports ---
+  echo "[Port Availability]"
+  for port_info in "$AETHER_PORT:Aether" "$AUDIOMASS_PORT:AudioMass" "$DJ_TOOLKIT_PORT:DJ Toolkit" "$MUSIC_TOOLS_PORT:Music Tools" "$MELODY_SUITE_PORT:Melody Suite" "$WEBUI_PORT:Open WebUI"; do
+    local port="${port_info%%:*}"
+    local name="${port_info#*:}"
+    if ss -tlnp 2>/dev/null | grep -q ":$port[ ]"; then
+      check ":$port ($name)" warn "already in use — may conflict"
+    else
+      check ":$port ($name)" ok "available"
+    fi
+  done
+
+  echo ""
+  echo "========================================"
+  echo "Summary: $ok ok, $warn warnings, $fail failures"
+  if [ $fail -gt 0 ]; then
+    echo "Some critical dependencies are missing. Fix the ✗ items above before starting."
+  elif [ $warn -gt 0 ]; then
+    echo "Non-critical warnings — the core stack (Aether + AudioMass) should still start."
+  else
+    echo "All checks passed — ready to start!"
+  fi
+  echo "========================================"
+  exit $fail
 }
 
 start_aether_dev() {
@@ -243,22 +469,31 @@ start_aether_dev() {
 start_audiomass() {
   log "→ Starting AudioMass on :$AUDIOMASS_PORT ..."
 
+  # Try systemd first (survives shell exit reliably), fall back to nohup
+  local SVC="$HOME/.config/systemd/user/audiomass.service"
+  if command -v systemctl &>/dev/null && [ -f "$SVC" ]; then
+    systemctl --user start audiomass.service 2>/dev/null && {
+      log "   AudioMass started via systemd"
+      log "   Direct: http://localhost:$AUDIOMASS_PORT"
+      log "   Via proxy: http://localhost/mass  (or /audiomass)"
+      return 0
+    }
+    log "   systemd start failed, falling back to nohup"
+  fi
+
+  # Fallback: nohup
   if [ ! -f "$AUDIOMASS_DIR/run.sh" ]; then
     log "ERROR: audiomass/run.sh not found at $AUDIOMASS_DIR"
     exit 1
   fi
 
-  # Clean prior
   if [ -f "$AUDIOMASS_PIDFILE" ]; then
     kill "$(cat "$AUDIOMASS_PIDFILE" 2>/dev/null)" 2>/dev/null || true
     rm -f "$AUDIOMASS_PIDFILE"
   fi
   pkill -f "uvicorn.*$AUDIOMASS_PORT" 2>/dev/null || true
 
-  # AUDIOMASS_PORT env respected inside audiomass/run.sh (PORT=...); we pass "start" only.
-  # (AudioMass uses relative asset paths, so strip_prefix /mass in Caddy + proxy works cleanly.)
   nohup env AUDIOMASS_PORT="$AUDIOMASS_PORT" AUDIOMASS_DEMUCS_DOCKER_IMAGE="$DEMUCS_IMAGE" "$AUDIOMASS_DIR/run.sh" start > "$AUDIOMASS_LOG" 2>&1 &
-
   local pid=$!
   echo "$pid" > "$AUDIOMASS_PIDFILE"
 
@@ -353,6 +588,36 @@ start_melody_suite() {
   log "   Direct: http://localhost:$MELODY_SUITE_PORT  (editor: /tools/melody-sheet/interactive-sheet-music-editor-playback)"
 }
 
+start_mixer() {
+  log "→ Starting Stem Mixer (static, :$MIXER_PORT) via systemd user unit..."
+
+  if [ ! -d "$MIXER_DIR" ]; then
+    log "ERROR: mixer/ not found at $MIXER_DIR — skipping."
+    return 1
+  fi
+
+  if ! command -v systemctl &>/dev/null; then
+    log "   systemctl unavailable — start manually: cd $MIXER_DIR && python3 -m http.server $MIXER_PORT"
+    return 1
+  fi
+
+  systemctl --user daemon-reload 2>/dev/null || true
+  if ! systemctl --user start "$MIXER_SERVICE" 2>/dev/null; then
+    log "   WARNING: could not start $MIXER_SERVICE (is ~/.config/systemd/user/mixer.service present?)."
+    log "   Manual: cd $MIXER_DIR && python3 -m http.server $MIXER_PORT --bind 0.0.0.0"
+    return 1
+  fi
+  log "   Stem Mixer: http://localhost:$MIXER_PORT  (proxy: http://localhost/mixer)"
+  log "   API: talks to AudioMass REST on :5055 directly (stems/jobs)."
+}
+
+stop_mixer() {
+  log "Stopping Stem Mixer..."
+  systemctl --user stop "$MIXER_SERVICE" 2>/dev/null || true
+  pkill -f "http.server $MIXER_PORT" 2>/dev/null || true
+  log "  Stem Mixer stopped."
+}
+
 start_webui() {
   # Open WebUI (LLM hub / chat / tools) — venv app on :3000, served as the Caddy
   # catch-all route (http://localhost/). Uses the existing ~/webui scripts.
@@ -445,6 +710,11 @@ stop_aether() {
 
 stop_audiomass() {
   log "Stopping AudioMass..."
+  # Stop systemd service if present
+  if command -v systemctl &>/dev/null && systemctl --user is-active audiomass.service &>/dev/null; then
+    systemctl --user stop audiomass.service 2>/dev/null || true
+  fi
+  # Also kill any orphaned processes
   if [ -f "$AUDIOMASS_PIDFILE" ]; then
     local pid
     pid=$(cat "$AUDIOMASS_PIDFILE" 2>/dev/null || true)
@@ -455,6 +725,7 @@ stop_audiomass() {
     fi
     rm -f "$AUDIOMASS_PIDFILE"
   fi
+  pkill -f "audiomass-server.py" 2>/dev/null || true
   pkill -f "uvicorn.*$AUDIOMASS_PORT" 2>/dev/null || true
   log "  AudioMass stopped."
 }
@@ -536,6 +807,7 @@ stop_all() {
   stop_dj_toolkit
   stop_music_tools
   stop_melody_suite
+  stop_mixer
   stop_webui
   stop_llama_gpu
   stop_seed_llm
@@ -601,9 +873,9 @@ status() {
   [ -f "$AUDIOMASS_PIDFILE" ] && mpid=$(cat "$AUDIOMASS_PIDFILE" 2>/dev/null || true)
   if [ -n "$mpid" ] && kill -0 "$mpid" 2>/dev/null; then
     echo "  RUNNING   pid=$mpid (pidfile)"
-  elif pgrep -f "uvicorn.*$AUDIOMASS_PORT" >/dev/null 2>&1; then
+  elif pgrep -f "audiomass-server.py" >/dev/null 2>&1 || pgrep -f "uvicorn.*$AUDIOMASS_PORT" >/dev/null 2>&1; then
     echo "  RUNNING   (pgrep match)"
-    pgrep -af uvicorn 2>/dev/null | grep "$AUDIOMASS_PORT" | head -1 | sed 's/^/    /'
+    pgrep -af "audiomass-server.py\|uvicorn" 2>/dev/null | grep "$AUDIOMASS_PORT" | head -1 | sed 's/^/    /'
   else
     echo "  NOT RUNNING"
   fi
@@ -701,18 +973,19 @@ status() {
 
 case "${1:-start}" in
   start)
-    guard_pandora_mount
-    ensure_caddy
-    start_llama_gpu
-    start_seed_llm
+    guard_pandora_mount || true
+    ensure_caddy || log "   Caddy not available — apps still work on direct ports."
+    start_llama_gpu || log "   GPU LLM server skipped — Aether will use Ollama/CPU fallback."
+    start_seed_llm || log "   Cloud-LLM seed skipped — no 9router gateway key available."
     start_aether_dev
     start_audiomass
-    start_dj_toolkit
-    start_music_tools
-    start_melody_suite
-    start_webui
+    start_dj_toolkit || log "   DJ Toolkit skipped."
+    start_music_tools || log "   Music Tools skipped."
+    start_melody_suite || log "   Melody Suite skipped."
+    start_mixer || log "   Stem Mixer skipped."
+    start_webui || log "   Open WebUI skipped."
     echo ""
-    log "Aether + AudioMass + DJ Toolkit + Music Tools + Melody Suite + Open WebUI + GPU LLM + Caddy ready — the full creative stack."
+    log "Aether + AudioMass + DJ Toolkit + Music Tools + Melody Suite + Stem Mixer + Open WebUI + GPU LLM + Caddy ready — the full creative stack."
     log "Recommended unified access (Caddy on :80):"
     log "  http://localhost/          → Open WebUI (LLM hub / chat / tools)"
     log "  http://localhost/aether/   → Aether (AI music generation + sequencer, hot reload)"
@@ -720,10 +993,12 @@ case "${1:-start}" in
     log "    NOTE: Open WebUI is the Caddy catch-all — the Caddyfile ends with a matcher-less handle (localhost:3000). handle / matches ONLY the root and would break OWUI's /static + /api paths; add new prefix routes ABOVE the catch-all."
     log "  http://localhost/mass     → AudioMass (multitrack waveform editor)"
     log "  http://localhost/melody   → Melody Suite (sheet editor / SATB harmony / MP3→MIDI)"
+    log "  http://localhost/mixer    → Stem Mixer (load AudioMass jobs / mix stems / export WAV)"
     log "Direct ports (no proxy needed):"
     log "  http://localhost:5001     → DJ Toolkit (stems / BPM-key / vocal remover / MP3→MIDI)"
-    log "  http://localhost:8091     → Music Tools (melody generator / audio→sheet)"
-    log "  http://localhost:5000     → Melody Suite (interactive sheet editor / SATB harmony / MP3→MIDI)"
+    log "  http://localhost:8091     → Music Tools (melody generator / audio-to-sheet)"
+    log "  http://localhost:$MELODY_SUITE_PORT     → Melody Suite (interactive sheet editor / SATB harmony / MP3→MIDI)"
+    log "  http://localhost:$MIXER_PORT     → Stem Mixer direct (5060 is browser-blocked: ERR_UNSAFE_PORT)"
     log "  http://localhost:11435    → GPU LLM server (llama.cpp Vulkan — Aether AI on the RX 580)"
     log "  /aether/llm-seed.json     → cloud-LLM seed for fresh browsers (auto-applied on load; cleaned on stop)"
     log ""
@@ -742,18 +1017,19 @@ case "${1:-start}" in
     ;;
   restart)
     log "Restarting everything..."
-    guard_pandora_mount
+    guard_pandora_mount || true
     stop_all
     sleep 1
-    ensure_caddy
-    start_llama_gpu
-    start_seed_llm
+    ensure_caddy || log "   Caddy not available — apps still work on direct ports."
+    start_llama_gpu || log "   GPU LLM server skipped."
+    start_seed_llm || log "   Cloud-LLM seed skipped."
     start_aether_dev
     start_audiomass
-    start_dj_toolkit
-    start_music_tools
-    start_melody_suite
-    start_webui
+    start_dj_toolkit || log "   DJ Toolkit skipped."
+    start_music_tools || log "   Music Tools skipped."
+    start_melody_suite || log "   Melody Suite skipped."
+    start_mixer || log "   Stem Mixer skipped."
+    start_webui || log "   Open WebUI skipped."
     log "Restart complete."
     ;;
   status)
@@ -774,13 +1050,17 @@ case "${1:-start}" in
     ensure_caddy
     log "Caddy restarted."
     ;;
+  dry-run|check)
+    dry_run
+    ;;
   *)
-    echo "Usage: $0 {start|stop|restart|status|build-aether|caddy-restart}"
+    echo "Usage: $0 {start|stop|restart|status|dry-run|build-aether|caddy-restart}"
     echo ""
     echo "  start          Start Caddy (smart) + GPU LLM + Aether dev + AudioMass + DJ Toolkit + Music Tools + Melody Suite + Open WebUI"
     echo "  stop           Stop everything + our Caddy instance"
     echo "  restart        stop + start"
     echo "  status         Show pids, logs tails, listeners, quick curl tests against proxy"
+    echo "  dry-run        Check all dependencies without starting anything"
     echo "  build-aether   Build with correct base for /aether serving"
     echo "  caddy-restart  Stop/start only the Caddy (e.g. after you edited Caddyfile)"
     exit 1
