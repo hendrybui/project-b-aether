@@ -47,3 +47,6 @@ public/llm-seed.json
 .hermes/
 .zcode/
 .csm_setup_*
+
+# Reference images (moved to docs/references/)
+docs/references/*.png

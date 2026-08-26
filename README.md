@@ -128,7 +128,8 @@ See the dedicated `run-aether-with-audiomass.sh` and the Caddyfile at `/mnt/Pand
 Current proxy gives you:
 - `/aether/` → Aether
 - `/mass` or `/audiomass` → AudioMass (your editor)
-- `/melody` → Melody Suite (Flask music analysis/generation tools, :5000)
+- `/melody` → Melody Suite (Flask music analysis/generation tools, :5002 — app default is 5000 but the launcher sets 5002)
+- `/mixer` → Stem Mixer (mixing frontend for AudioMass jobs, :5058)
 - `/` → Open WebUI
 - `/comfy` → ComfyUI
 
@@ -195,49 +196,17 @@ This is the finished handout. All gaps closed. Easier for you (one script + clea
 If you want any tiny polish after your first run, just say – but per your request, this is complete before handout. Enjoy creating!
 
 ```caddyfile
-# Main creative hub — see /mnt/Pandora/caddy/Caddyfile for the live version.
-# Rules: handle blocks are first-match-wins; the Open WebUI catch-all MUST be
-# LAST (a `handle /` matches only the root path and silently breaks Open WebUI's
-# /static + /api requests). The /aether handle proxies through WITHOUT a prefix
-# strip because Vite runs --base /aether/ (a strip makes Vite receive / and
-# 302-redirect to /aether/ forever); use http://localhost/aether/ (trailing slash).
-:80 {
-    # Prefix routes first
-    handle /comfy* {
-        uri strip_prefix /comfy
-        reverse_proxy localhost:8188
-    }
-    handle /aether* {
-        reverse_proxy localhost:5173   # Vite dev with --base /aether/ — no strip!
-    }
-    handle /ollama* {
-        uri strip_prefix /ollama
-        reverse_proxy localhost:11434
-    }
-    handle /tools* {
-        uri strip_prefix /tools
-        reverse_proxy localhost:8000
-    }
-    handle /terminal* {
-        uri strip_prefix /terminal
-        reverse_proxy localhost:8001
-    }
-    handle /mass* {
-        uri strip_prefix /mass
-        reverse_proxy localhost:5055
-    }
-    handle /melody* {
-        uri strip_prefix /melody
-        reverse_proxy localhost:5000 {
-            header_up X-Script-Name /melody
-        }
-    }
-
-    # Open WebUI (LLM hub) — matcher-less catch-all, MUST stay last
-    handle {
-        reverse_proxy localhost:3000
-    }
-}
+# ILLUSTRATIVE ONLY — the live config is /mnt/Pandora/caddy/Caddyfile.
+# (A copy used to live here and drifted out of sync; don't re-embed it.)
+# Rules that matter, verified 2026-08-27:
+#   - handle blocks are first-match-wins; the Open WebUI catch-all (handle {})
+#     MUST stay LAST or OWUI's /static + /api break.
+#   - /aether* proxies WITHOUT strip_prefix (Vite runs --base /aether/);
+#     stripping causes a 302 loop. Use http://localhost/aether/ (trailing slash).
+#   - /melody → :5002, /mixer → :5058, /mass|/audiomass → :5055 — keep ports
+#     in sync with run-aether-with-audiomass.sh when either changes.
+#   - The live Caddy is the systemd service reading /etc/caddy/Caddyfile;
+#     the launcher auto-syncs it from /mnt/Pandora/caddy/Caddyfile on drift.
 ```
 
 **Benefits**:
@@ -284,7 +253,7 @@ If Omniroute is your custom router/orchestrator, it is the perfect place to:
 
 1. Run Ollama + Open WebUI as usual.
 2. Run ComfyUI on 8188.
-3. For Aether: `cd ai-synth && npm run build`, then serve `dist/` on port 5174 (or via the reverse proxy under `/synth`).
+3. For Aether: `cd /mnt/Pandora/Project-B && npm run build`, then serve `dist/` (e.g. `./run-aether-with-audiomass.sh build-aether`) — or just use the dev server the launcher starts on :5173 behind `/aether/`.
 4. In Open WebUI, add a custom link or "tool" that opens Aether with the current conversation context as the initial prompt.
 5. Experiment with giving the LLM in WebUI the ability to output structured patch descriptions that Aether can consume directly.
 
@@ -307,73 +276,32 @@ The current Aether is intentionally minimal-dependency and self-contained so it 
 
 ## Current Serving Configuration (Pandora unified)
 
-All tools now live together under `/mnt/Pandora/Project-B/` (Aether files) and sibling locations.
+All tools live together under `/mnt/Pandora/Project-B/` and are managed by **one launcher**:
 
-**Recommended access via Caddy reverse proxy** (see `/mnt/Pandora/caddy/Caddyfile`):
+```bash
+cd /mnt/Pandora/Project-B
+./run-aether-with-audiomass.sh start    # also: stop, restart, status, build-aether, caddy-restart
+```
+
+It brings up Aether (dev server + HMR, :5173 behind `/aether/`), AudioMass (:5055), DJ Toolkit (:5001), Music Tools (:8091), Melody Suite (:5002), Stem Mixer (:5058), Open WebUI (:3000), optional GPU llama.cpp (:11435) + cloud-LLM seed, and Caddy (:80).
+
+**Unified access via Caddy** (source of truth: `/mnt/Pandora/caddy/Caddyfile`):
 
 - http://localhost/ → Open WebUI (main hub + LLM chat)
-- http://localhost/aether/ → Aether (music synth, static after `npm run build`)
-- http://localhost/comfy → ComfyUI (images/video)
-- http://localhost/tools → Tool server (8000)
-- Ollama remains on 11434 (called directly by Aether and WebUI)
+- http://localhost/aether/ → Aether (Vite dev with HMR; static only if you switch the Caddyfile block after `npm run build`)
+- http://localhost/mass → AudioMass (multitrack editor)
+- http://localhost/melody → Melody Suite (:5002)
+- http://localhost/mixer → Stem Mixer (:5058)
+- http://localhost/comfy → ComfyUI (if running)
+- Ollama stays on 11434 (called directly by Aether and WebUI)
 
-### Quick start all together
+**How Caddy runs here (verified 2026-08-27):** the systemd `caddy` service owns :80 and reads `/etc/caddy/Caddyfile`. Edit `/mnt/Pandora/caddy/Caddyfile` (the source of truth), then either let the launcher sync it (`./run-aether-with-audiomass.sh caddy-restart` auto-copies on drift) or manually:
+
 ```bash
-# 1. Build Aether (once)
-cd /mnt/Pandora/Project-B
-npm run build
-
-# 2. Start services (in separate terminals or use your existing scripts)
-# Open WebUI + tools (includes 3000, 8000, 8001)
-bash /mnt/Pandora/open-webui-local/start-webui.sh
-
-# ComfyUI
-bash ~/start-comfyui.sh   # or wherever your script is
-
-# 3. Start the proxy
-sudo caddy run --config /mnt/Pandora/caddy/Caddyfile
+sudo cp /mnt/Pandora/caddy/Caddyfile /etc/caddy/Caddyfile && sudo systemctl restart caddy
 ```
 
-Now you have one entry point and the tools can call each other (Aether uses Ollama directly, WebUI can orchestrate prompts across ComfyUI + Aether).
-
-## Unified Serving with Caddy (Recommended)
-
-Now that Aether lives directly in `/mnt/Pandora/Project-B/`, here's the current best way to access everything together:
-
-**Caddyfile location**: `/mnt/Pandora/caddy/Caddyfile`
-
-### Setup (one time)
-```bash
-# Install Caddy
-curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/setup.deb.sh' | sudo bash
-sudo apt install -y caddy
-
-# Deploy the config
-sudo cp /mnt/Pandora/caddy/Caddyfile /etc/caddy/Caddyfile
-
-# Start it
-sudo systemctl enable --now caddy
-```
-
-### Daily usage
-1. Build Aether for production serving:
-   ```bash
-   cd /mnt/Pandora/Project-B
-   npm run build
-   ```
-
-2. Make sure your other services are running:
-   - Open WebUI (and its tool server): use the start script in open-webui-local
-   - ComfyUI: your usual script
-
-3. Everything is now available from a single place:
-   - http://localhost/          → Open WebUI (LLM + orchestration hub)
-   - http://localhost/aether/    → Aether (the music synth you just built)
-   - http://localhost/comfy     → ComfyUI
-   - http://localhost/tools     → Tool server
-   - http://localhost/terminal  → Open Terminal
-
-Aether calls Ollama directly (port 11434) — no extra hops.
+Aether's AI features use a 3-tier LLM fallback (cloud/9router → GPU llama.cpp :11435 → Ollama :11434) — no tier is required; everything degrades to local generators.
 
 This is the "together" configuration: one reverse proxy, all your Pandora AI tools (text, image, music) accessible and able to call each other via the LLM in Open WebUI.
 

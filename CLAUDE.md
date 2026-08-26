@@ -16,6 +16,10 @@ npm run dev          # Start Vite dev server on port 5173
 npm run build       # TypeScript compile + Vite build to dist/
 npm run preview     # Preview the built dist/ locally
 
+# Tests (node:test; tests/ is git-tracked — restore with `git restore tests/` if missing)
+npm test            # node --test tests/*.test.mjs --test-concurrency=1
+node --test tests/plugin-units.test.mjs   # single file
+
 # Run Aether + AudioMass together (recommended)
 ./run-aether-with-audiomass.sh start    # Start both apps + Caddy proxy
 ./run-aether-with-audiomass.sh stop     # Stop all services
@@ -71,11 +75,12 @@ src/
 - `generateMelody()` / `generateChordProgression()` — Scale-aware sequences
 - `generateDrumPattern()` / `applyEuclidean()` — Rhythm generators
 
-**Ollama Integration** (optional):
-- `describeToPatchWithOllama()` — Natural language → synth parameters
-- `generateAudioMassIdeaWithOllama()` — Variation ideas for AudioMass workflow
+**LLM Integration** (3-tier fallback chain, never throws — see `src/ai/ollama.ts`):
+1. Cloud (OpenAI-compatible, e.g. 9router) if configured — persisted in localStorage `aether-llm-cloud`, seeded by the launcher via git-ignored `public/llm-seed.json`
+2. GPU llama.cpp on `localhost:11435` (started by `scripts/start-llama-gpu.sh`)
+3. Ollama on `localhost:11434/api/chat`, model `llama3.1:8b`
 
-Calls `http://localhost:11434/api/chat` directly with model `llama3.1:8b` by default.
+All AI features degrade gracefully to the local keyword/scale generators when every tier fails.
 
 ## Key Patterns
 
