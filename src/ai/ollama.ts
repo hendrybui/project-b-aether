@@ -174,7 +174,7 @@ async function chatCompletion(
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: 'llama3.1:8b', // good balance; user can have others
+        model: 'gpt-oss:120b-cloud', // cloud proxy — zero local resources, ~0.3s response
         messages,
         stream: false,
         options: { temperature, top_p },

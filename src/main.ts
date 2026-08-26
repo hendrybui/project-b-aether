@@ -564,7 +564,7 @@ function setupAI(): void {
         ? `Cloud LLM: ${text}`
         : backend === 'gpu'
           ? `Local LLM (GPU): ${text}`
-          : `Local LLM (Ollama): ${text}`;
+          : `Cloud LLM (Ollama): ${text}`;
       applyPatch(clean, label);
       refreshEngineFn?.(); // show the answering LLM backend in the bridge row now
     } else {
@@ -717,6 +717,9 @@ function setupAI(): void {
   bindButton('bounce-drums-btn', () => bounceCurrentPattern('drums'));
   bindButton('bounce-synth-btn', () => bounceCurrentPattern('synth'));
 
+  // MIDI pattern export (synth + GM drums, one loop)
+  bindButton('export-midi-btn', () => exportPatternMidi());
+
   // AudioMass LLM bridge
   setupAudioMassLLMBridge();
 
@@ -765,11 +768,12 @@ async function bounceCurrentPattern(stemType: 'full' | 'drums' | 'synth'): Promi
 
   // Encode WAV
   let finalBlob: Blob = blob;
+  let wavInfo = '';
   try {
     const ab = await blob.arrayBuffer();
-    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
-    const buf = await ctx.decodeAudioData(ab);
+    const buf = await getDecodeContext().decodeAudioData(ab);
     finalBlob = encodeAudioBufferToWav(buf);
+    wavInfo = `WAV PCM 16-bit · ${(buf.sampleRate / 1000).toFixed(1)} kHz · ${buf.numberOfChannels} ch`;
   } catch (e) {
     console.warn('WAV encode fallback', e);
   }
@@ -803,17 +807,35 @@ async function bounceCurrentPattern(stemType: 'full' | 'drums' | 'synth'): Promi
     }
     const job = await res.json() as { job_id?: string };
     if (status) {
+      const fmt = wavInfo ? ` (${wavInfo})` : '';
       status.textContent = job?.job_id
-        ? `Bounced ${stemType} → uploaded to AudioMass, separating (job ${job.job_id.slice(0, 8)}…)`
-        : `Bounced ${stemType} → uploaded to AudioMass, separating…`;
+        ? `Bounced ${stemType}${fmt} → uploaded to AudioMass, separating (job ${job.job_id.slice(0, 8)}…)`
+        : `Bounced ${stemType}${fmt} → uploaded to AudioMass, separating…`;
+    }
+    // Auto-open the AudioMass editor with the source audio pre-loaded.
+    // The ?job= param triggers auto-load.js in AudioMass to fetch and
+    // display the waveform without manual drag-and-drop.
+    if (job?.job_id) {
+      const amBase = (amBaseUrl || DEFAULT_AM_BASE).replace(/\/+$/, '');
+      const editorUrl = `${amBase}/?job=${encodeURIComponent(job.job_id)}`;
+      window.open(editorUrl, 'aether-audiomass-editor');
     }
   } catch (err) {
     const why = err instanceof Error ? err.message : String(err);
     if (status) {
-      status.textContent = `Bounced ${stemType} WAV saved locally — AudioMass upload failed (${why})`;
+      status.textContent = `Bounced ${stemType} ${wavInfo || 'WAV'} saved locally — AudioMass upload failed (${why})`;
     }
   }
   if (status) setTimeout(() => { status.textContent = ''; }, 5000);
+}
+
+// One shared AudioContext used ONLY for decoding blobs into AudioBuffers.
+// Creating a new context per bounce/stop was slow AND leaked (browsers cap
+// the number of live contexts; each one must be closed). Reuse one lazily.
+let decodeCtx: AudioContext | null = null;
+function getDecodeContext(): AudioContext {
+  if (!decodeCtx) decodeCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+  return decodeCtx;
 }
 
 function encodeAudioBufferToWav(audioBuffer: AudioBuffer): Blob {
@@ -853,10 +875,124 @@ function writeString(view: DataView, offset: number, s: string): void {
   for (let i = 0; i < s.length; i++) view.setUint8(offset + i, s.charCodeAt(i));
 }
 
+// ===== MIDI export (Standard MIDI File, type 1) =====
+// One pattern cycle → 3 tracks: conductor (tempo + 4/4), SYN (channel 1),
+// DRUMS (GM channel 10). Each sequencer step is a 16th note; at PPQ 480 that
+// is 120 ticks. Muted tracks are skipped, matching the WAV bounce.
+const GM_DRUM_MAP: Record<string, number> = {
+  kick: 36,        // GM: Bass Drum 1
+  snare: 38,       // GM: Acoustic Snare
+  closedhat: 42,   // GM: Closed Hi-Hat
+  openhat: 46,     // GM: Open Hi-Hat
+  perc: 39,        // GM: Hand Clap
+};
+
+/** MIDI variable-length quantity encoding. */
+function vlq(n: number): number[] {
+  const bytes: number[] = [n & 0x7f];
+  while (n > 0x7f) {
+    n = (n >> 7) | 0;
+    bytes.unshift((n & 0x7f) | 0x80);
+  }
+  return bytes;
+}
+
+interface MidiEvent {
+  tick: number;
+  order: number; // 0 = note-off, 1 = note-on, 2 = meta/EOT
+  bytes: number[];
+}
+
+/** Serialize a sorted event list into an MTrk chunk (with running deltas). */
+function encodeMidiTrack(events: MidiEvent[], totalTicks: number): Uint8Array {
+  const sorted = [...events].sort((a, b) => a.tick - b.tick || a.order - b.order);
+  const body: number[] = [];
+  let prev = 0;
+  for (const ev of sorted) {
+    body.push(...vlq(ev.tick - prev), ...ev.bytes);
+    prev = ev.tick;
+  }
+  // End-of-track at the pattern's full length so the DAW loop lines up.
+  body.push(...vlq(totalTicks - prev), 0xff, 0x2f, 0x00);
+  const chunk = new Uint8Array(8 + body.length);
+  chunk.set([0x4d, 0x54, 0x72, 0x6b], 0); // "MTrk"
+  const dv = new DataView(chunk.buffer);
+  dv.setUint32(4, body.length, false);
+  chunk.set(body, 8);
+  return chunk;
+}
+
+function exportPatternMidi(): void {
+  if (!sequencer) return;
+  const pat = sequencer.getPattern();
+  const bpm = Math.max(40, Math.min(240, Math.round(sequencer.getTempo() || 120)));
+  const PPQ = 480;
+  const stepTicks = PPQ / 4; // one 16th note
+  const totalTicks = pat.length * stepTicks;
+
+  // Conductor track: tempo + 4/4, all at tick 0.
+  const tempoUs = Math.max(1, Math.min(0xffffff, Math.round(60000000 / bpm)));
+  const conductor: MidiEvent[] = [
+    { tick: 0, order: 2, bytes: [0xff, 0x51, 0x03, (tempoUs >> 16) & 0xff, (tempoUs >> 8) & 0xff, tempoUs & 0xff] },
+    { tick: 0, order: 2, bytes: [0xff, 0x58, 0x04, 0x04, 0x02, 0x18, 0x08] }, // 4/4
+  ];
+
+  const synthTrack = pat.tracks.find(t => t.id === 'synth');
+  const synthEvents: MidiEvent[] = [];
+  if (synthTrack && !synthTrack.muted) {
+    synthTrack.steps.forEach((s, i) => {
+      if (!s.on) return;
+      const midi = s.midi ?? 60;
+      const vel = Math.max(1, Math.min(127, Math.round((s.vel || 0.9) * 127)));
+      const tick = i * stepTicks;
+      // 90% gate so adjacent same-pitch steps stay separate in the DAW.
+      synthEvents.push({ tick, order: 1, bytes: [0x90, midi, vel] });
+      synthEvents.push({ tick: tick + Math.floor(stepTicks * 0.9), order: 0, bytes: [0x80, midi, 0x40] });
+    });
+  }
+
+  const drumEvents: MidiEvent[] = [];
+  for (const track of pat.tracks) {
+    if (track.type !== 'drum' || track.muted) continue;
+    const gm = GM_DRUM_MAP[track.id];
+    if (!gm) continue;
+    track.steps.forEach((s, i) => {
+      if (!s.on) return;
+      const vel = Math.max(1, Math.min(127, Math.round((s.vel || 0.9) * 127)));
+      const tick = i * stepTicks;
+      // Full 16th length — GM drum sounds retrigger on note-on anyway.
+      drumEvents.push({ tick, order: 1, bytes: [0x99, gm, vel] });
+      drumEvents.push({ tick: tick + stepTicks, order: 0, bytes: [0x89, gm, 0x40] });
+    });
+  }
+
+  const tracks = [
+    encodeMidiTrack(conductor, 0),
+    encodeMidiTrack(synthEvents, totalTicks),
+    encodeMidiTrack(drumEvents, totalTicks),
+  ];
+  const totalLen = tracks.reduce((n, t) => n + t.length, 0);
+  const file = new Uint8Array(14 + totalLen);
+  file.set([0x4d, 0x54, 0x68, 0x64, 0, 0, 0, 6, 0, 1, 0, 3, 0x01, 0xe0], 0); // MThd, type 1, 3 tracks, PPQ 480
+  let off = 14;
+  for (const t of tracks) { file.set(t, off); off += t.length; }
+
+  const blob = new Blob([file], { type: 'audio/midi' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `aether-pattern-${Date.now()}.mid`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  updateStatus(`MIDI exported — ${bpm} BPM, ${pat.length}-step pattern (SYN ch1, drums GM ch10).`);
+}
+
 // ===== Recording =====
 function setupRecording(): void {
-  const recBtn = document.getElementById('record-btn');
-  const stopBtn = document.getElementById('stop-rec-btn');
+  const recBtn = document.getElementById('record-btn') as HTMLButtonElement | null;
+  const stopBtn = document.getElementById('stop-rec-btn') as HTMLButtonElement | null;
   if (!recBtn || !stopBtn) return;
 
   recBtn.addEventListener('click', async () => {
@@ -870,25 +1006,25 @@ function setupRecording(): void {
   });
   stopBtn.addEventListener('click', async () => {
     if (!recorder) return;
-    const blob = await recorder.stop();
-    Tone.getDestination().disconnect(recorder);
+    // Swap the button FIRST so the UI reacts immediately — the encode below
+    // (decode + WAV write on the main thread) is the slow part.
     recBtn.classList.remove('recording');
     recBtn.textContent = '● REC';
     stopBtn.style.display = 'none';
+    stopBtn.disabled = true;
+    const t0 = performance.now();
+    updateStatus('Converting recording to WAV…');
 
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `aether-${Date.now()}.webm`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    const blob = await recorder.stop();
+    Tone.getDestination().disconnect(recorder);
+    recorder.dispose();
+    recorder = null;
 
     try {
       const ab = await blob.arrayBuffer();
-      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
-      const buf = await ctx.decodeAudioData(ab);
+      // One shared decode context for the whole page (recording + bounce):
+      // creating a fresh AudioContext per stop was both slow and leaked.
+      const buf = await getDecodeContext().decodeAudioData(ab);
       const wavBlob = encodeAudioBufferToWav(buf);
       const wavUrl = URL.createObjectURL(wavBlob);
       const aw = document.createElement('a');
@@ -898,11 +1034,96 @@ function setupRecording(): void {
       aw.click();
       document.body.removeChild(aw);
       URL.revokeObjectURL(wavUrl);
+      const khz = (buf.sampleRate / 1000).toFixed(1);
+      updateStatus(`Recording saved — WAV PCM 16-bit · ${khz} kHz · ${buf.numberOfChannels} ch · ${(blob.size / 1024 / 1024).toFixed(1)} MB in ${((performance.now() - t0) / 1000).toFixed(1)}s`);
     } catch (e) {
       console.warn('WAV conversion failed', e);
+      updateStatus('Recording conversion failed — see console', false);
     }
-    recorder.dispose();
-    recorder = null;
+    stopBtn.disabled = false;
+  });
+}
+
+// ===== Loaded-WAV preview / noise boost (the "open file" row) =====
+// Wires the previously-dead <input type="file" id="load-audiomass-wav"> +
+// "Play Preview" / "Use as Noise Boost" buttons. The buffer plays through
+// the engine's master bus, so the master volume, scope, and REC all see it.
+let loadedWavBuffer: AudioBuffer | null = null;
+let previewPlayer: Tone.Player | null = null;
+let previewMode: 'off' | 'preview' | 'boost' = 'off';
+
+function setupLoadedWavPreview(): void {
+  const fileInput = document.getElementById('load-audiomass-wav') as HTMLInputElement | null;
+  const playBtn = document.getElementById('play-loaded-wav') as HTMLButtonElement | null;
+  const boostBtn = document.getElementById('use-as-noise-boost') as HTMLButtonElement | null;
+  if (!fileInput || !playBtn || !boostBtn) return;
+
+  const setEnabled = (on: boolean) => {
+    playBtn.disabled = !on;
+    boostBtn.disabled = !on;
+  };
+  setEnabled(false);
+
+  fileInput.addEventListener('change', async () => {
+    const file = fileInput.files?.[0];
+    if (!file) return;
+    updateStatus(`Loading ${file.name}…`);
+    try {
+      await ensureAudio();
+      const ab = await file.arrayBuffer();
+      loadedWavBuffer = await getDecodeContext().decodeAudioData(ab);
+      setEnabled(true);
+      updateStatus(`Loaded ${file.name} — ${(file.size / 1024 / 1024).toFixed(1)} MB, ready to preview or boost.`);
+    } catch (e) {
+      console.warn('WAV load failed', e);
+      setEnabled(false);
+      updateStatus('Could not decode that file as audio — try a WAV/MP3/OGG.', false);
+    }
+  });
+
+  // Shared player; preview = one-shot at unity, boost = looped at low volume.
+  async function getPlayer(): Promise<Tone.Player> {
+    if (previewPlayer) return previewPlayer;
+    await ensureAudio();
+    const p = new Tone.Player();
+    p.connect(synth.getMasterOutput() ?? Tone.getDestination());
+    previewPlayer = p;
+    return p;
+  }
+
+  const stopAll = () => {
+    previewPlayer?.stop();
+    previewMode = 'off';
+    playBtn.textContent = 'Play Preview';
+    boostBtn.textContent = 'Use as Noise Boost';
+  };
+
+  playBtn.addEventListener('click', async () => {
+    if (!loadedWavBuffer) return;
+    if (previewMode === 'preview') { stopAll(); return; }
+    const p = await getPlayer();
+    stopAll();
+    p.loop = false;
+    p.volume.value = 0;
+    p.buffer = new Tone.ToneAudioBuffer(loadedWavBuffer);
+    p.start();
+    previewMode = 'preview';
+    playBtn.textContent = '■ Stop Preview';
+    updateStatus(`Previewing ${(loadedWavBuffer.duration).toFixed(1)}s of audio — plays once through the master.`);
+  });
+
+  boostBtn.addEventListener('click', async () => {
+    if (!loadedWavBuffer) return;
+    if (previewMode === 'boost') { stopAll(); return; }
+    const p = await getPlayer();
+    stopAll();
+    p.loop = true;
+    p.volume.value = -14; // sits under the synth like a noise/atmosphere layer
+    p.buffer = new Tone.ToneAudioBuffer(loadedWavBuffer);
+    p.start();
+    previewMode = 'boost';
+    boostBtn.textContent = '■ Stop Noise Boost';
+    updateStatus('Looping as noise layer — lower the MASTER if it drowns the synth.');
   });
 }
 
@@ -953,8 +1174,8 @@ function setupAudioMassLLMBridge(): void {
     const ctx = currentAudioMassContext || '';
 
     statusEl.textContent = mode === 'variation'
-      ? 'Asking Ollama for AudioMass-optimized variation...'
-      : 'Asking Ollama to describe sound for AudioMass...';
+      ? 'Asking Cloud LLM for AudioMass-optimized variation...'
+      : 'Asking Cloud LLM to describe sound for AudioMass...';
     if (output) output.value = '...generating with LLM...';
 
     const result = await generateAudioMassIdeaWithOllama(fullDesc, ctx, mode);
@@ -1012,7 +1233,7 @@ function setupAudioMassLLMBridge(): void {
 // scale, notes:[{midi, beats}]}, where midi === null encodes a rest.
 const MELODY_BRIDGE_SOURCES = ['music-tools-melody', 'melody-suite-melody'] as const;
 // The suite is proxied at /melody (Caddy strip + X-Script-Name); direct
-// :5000 also still works, but the proxy keeps everything on one origin.
+// :$MELODY_SUITE_PORT also still works, but the proxy keeps everything on one origin.
 const MELODY_STUDIO_URL = 'http://localhost/melody/tools/melody-sheet/melody-studio';
 const MELODY_SUITE_AI_URL = 'http://localhost/melody/tools/melody-sheet/ai-melody-generator';
 
@@ -1413,6 +1634,7 @@ async function init(): Promise<void> {
   setupPiano();
   setupAI();
   setupRecording();
+  setupLoadedWavPreview();
   setupPresets();
   await setupMIDI();
 
