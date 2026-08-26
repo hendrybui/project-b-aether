@@ -46,11 +46,28 @@ find_bin() {
 
 find_model() {
   local cand
+  # 1. Exact match (backwards compat)
   for cand in \
-    "$MODELS_DIR/Qwen3-8B-Q4_K_M.gguf" \
-    "$MODELS_DIR"/*.gguf; do
+    "$MODELS_DIR/Qwen3-8B-Q4_K_M.gguf"; do
     [ -f "$cand" ] && { echo "$cand"; return 0; }
   done
+  # 2. Flat .gguf files in models dir
+  for cand in "$MODELS_DIR"/*.gguf; do
+    [ -f "$cand" ] && { echo "$cand"; return 0; }
+  done
+  # 3. Jan AI convention: subdirs with model.gguf inside (pick newest)
+  local newest=""
+  local newest_time=0
+  for cand in "$MODELS_DIR"/*/model.gguf; do
+    [ -f "$cand" ] || continue
+    local t
+    t=$(stat -c %Y "$cand" 2>/dev/null || echo 0)
+    if [ "$t" -gt "$newest_time" ]; then
+      newest_time=$t
+      newest=$cand
+    fi
+  done
+  [ -n "$newest" ] && { echo "$newest"; return 0; }
   return 1
 }
 
