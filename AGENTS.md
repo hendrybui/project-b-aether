@@ -13,7 +13,7 @@ The old AudioMass backend AND editor are **deleted** (`audiomass/` gone; safety 
 - **Verified at cutover:** CPU + ROCm warm-pool GPU separation end-to-end on :5055 through `backend/.venv`, 61/61 unit tests (`PYTHONPATH=backend backend/.venv/bin/python -m unittest discover -s backend/tests -v`).
 - **Jobs data:** `AUDIOMASS_JOBS_DIR` (default `/mnt/Pandora/Music/Audiamass`) — shared, all existing separations intact. `backend/docker/` holds the `Dockerfile.demucs-rocm` to rebuild the GPU image.
 - **DJ Toolkit** now uses `backend/.venv` (flask + basic-pitch live there).
-- **Ownership split:** backend work in `backend/`; DAW-frontend work in `mixer/ROADMAP.md` (next: 2.3 clip drag, 2.4 loop markers). The contract is the interface.
+- **Ownership split:** backend work in `backend/`; DAW-frontend work in `mixer/ROADMAP.md` (Phase 2 + 4.2/4.3 done 2026-08-27: clip drag, loop region, keybinds, undo/redo; next candidates: 3.2 separate-from-mixer, 4.4 theme, 5.x effects/automation). The contract is the interface.
 - `mixer/` is a **separate git repo** nested in this one — its commits stay inside it.
 
 ## Commands
