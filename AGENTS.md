@@ -42,6 +42,7 @@ node --test tests/plugin-units.test.mjs    # single test file
 `./run-aether-with-audiomass.sh start` brings up: Aether :5173 (`--base /aether/`), AudioMass :5055, DJ Toolkit :5001, Music Tools :8091, Melody Suite :5002 (env `MELODY_SUITE_PORT`; the app defaults to 5000 — keep the Caddyfile `/melody` route in sync), Stem Mixer :5058 (systemd unit, NOT 5060 — `ERR_UNSAFE_PORT`), Open WebUI :3000, optional GPU llama.cpp + cloud-LLM seed, Caddy :80.
 
 - Caddy's `/aether*` handle proxies **without** `strip_prefix` — Vite's `--base /aether/` handles the prefix, and stripping it causes a 302 loop. Use the trailing slash: `http://localhost/aether/`.
+- `/mixer` has an exact-match `redir /mixer /mixer/` — **required**: without it the page loads at a base URL where strip_prefix mangles relative assets (`mixer.js` → `.js` 404) and the app is a dead shell. Same pattern needed for any future `strip_prefix` static route.
 - The Open WebUI `handle` catch-all must stay LAST in the Caddyfile.
 - Caddy is managed via pidfiles + config-hash in `/tmp`; needs one-time `setcap` for :80. Direct ports work without Caddy.
 - Read the script header comments + `/mnt/Pandora/caddy/Caddyfile` before touching launcher/proxy.
