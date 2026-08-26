@@ -50,3 +50,5 @@ public/llm-seed.json
 
 # Reference images (moved to docs/references/)
 docs/references/*.png
+# Stem Mixer is its own nested git repo (commits stay inside it)
+mixer/
