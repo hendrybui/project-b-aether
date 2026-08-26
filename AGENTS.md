@@ -1,5 +1,10 @@
 # AGENTS.md — Project-B (Aether + AudioMass)
 
+> **⏸️ PAUSED — credit-limited agent to resume in ~5h (from 2026-08-27 night).**
+> **Do not revert the mixer yet — read this first:**
+> - Henry reports: **beat grid should NOT auto-snap to the first spike / move along the song.** The 2026-08-27 night-3 anchoring (`mixer/mixer.js` downbeat fix that shifts `beatOffset` to the first strong transient) is **reported as wrong behavior** — grid visibly moves/sits on the first spike when it shouldn't. Next agent: **revert or gate that anchoring** (keep `beatOffset` at the detected phase, or make it opt-in), verify `drawRuler`/`drawBeatGrid` are static. See `mixer/mixer.js:detectBPM` tail and `mixer/ROADMAP.md` field-fix note.
+> - Handoff is saved: mixer commit `8eabeb2`, root still clean, `tests/mixer-daw.test.mjs` 16/16. Vault note `Resources/Project-B - Aether + AudioMass Rebuild.md` has full cutover log.
+
 Guidance for OpenCode agents working in this workspace.
 
 **Aether** (repo root): AI-assisted web synth + step sequencer (Vite + TypeScript + Tone.js). Pairs with the **AudioMass API** (`backend/`, rebuilt FastAPI) and the **Stem Mixer** (`mixer/`, the DAW frontend) for a local "generate → separate → mix" music environment. `CLAUDE.md` documents the architecture in detail; `README.md` covers workflow/features. Don't duplicate those docs here.
