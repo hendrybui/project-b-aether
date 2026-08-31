@@ -41,15 +41,15 @@ def create_app() -> FastAPI:
             "active_job": job_service.get_job(job_service._active_job_id).model_dump() if job_service._active_job_id else None,
         }
 
-    # The retired AudioMass editor used to be mounted here. This API now has
-    # exactly two clients: the Stem Mixer (:5058, hardcodes :5055) and Aether
-    # (bounce upload). Point humans at the mixer.
+    # The Stem Mixer is a STANDALONE DAW served by its own static server
+    # (:5055, mixer.service). This backend is reference/API only and holds
+    # no port claim anymore — it must not be running while the mixer owns :5055.
     @app.get("/")
     async def root() -> dict:
         return {
-            "service": "audiomass-api",
+            "service": "audiomass-api (reference)",
             "status": "ok",
-            "clients": {"mixer": "http://localhost:5058", "aether": "http://localhost/aether/"},
+            "clients": {"mixer": "http://localhost:5055", "aether": "http://localhost/aether/"},
         }
 
     return app

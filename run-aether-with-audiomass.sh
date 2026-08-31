@@ -34,8 +34,6 @@ AUDIOMASS_DIR="$PROJECT_ROOT/audiomass"
 DJ_TOOLKIT_DIR="$PROJECT_ROOT/dj_toolkit"
 MUSIC_TOOLS_DIR="$PROJECT_ROOT/music-tools"
 MELODY_SUITE_DIR="$PROJECT_ROOT/melody-suite"
-MIXER_DIR="$PROJECT_ROOT/mixer"
-MIXER_SERVICE="mixer.service"
 MIXER_PORT=5058   # NOT 5060 — browsers hard-block 5060 (SIP) with ERR_UNSAFE_PORT
 LLAMA_GPU_SCRIPT="$PROJECT_ROOT/scripts/start-llama-gpu.sh"
 SEED_LLM_SCRIPT="$PROJECT_ROOT/scripts/seed-llm-config.sh"
@@ -462,6 +460,15 @@ start_aether_dev() {
 }
 
 start_audiomass() {
+  # AudioMass backend is REFERENCE ONLY (2026-08-31): UnrealMix (formerly Stem Mixer) is a
+  # standalone DAW with its own static server on :5055 (mixer.service).
+  # Starting this backend would fight the mixer for :5055 — so we don't.
+  # To explore the reference API manually, move it to another port first.
+  log "→ AudioMass backend: reference only — NOT started (mixer owns :5055)."
+  return 0
+}
+
+start_audiomass_legacy() {
   log "→ Starting AudioMass API (rebuilt backend) on :$AUDIOMASS_PORT ..."
 
   # The rebuilt backend (backend/, FastAPI) — served by mass-backend.service.
@@ -471,7 +478,7 @@ start_audiomass() {
   if command -v systemctl &>/dev/null && [ -f "$SVC" ]; then
     systemctl --user start mass-backend.service 2>/dev/null && {
       log "   AudioMass API started via systemd (mass-backend.service)"
-      log "   Direct: http://localhost:$AUDIOMASS_PORT   (consumers: mixer :5058, Aether bounce)"
+      log "   Direct: http://localhost:$AUDIOMASS_PORT"
       return 0
     }
     log "   systemd start failed, falling back to nohup"
@@ -587,35 +594,7 @@ start_melody_suite() {
   log "   Direct: http://localhost:$MELODY_SUITE_PORT  (editor: /tools/melody-sheet/interactive-sheet-music-editor-playback)"
 }
 
-start_mixer() {
-  log "→ Starting Stem Mixer (static, :$MIXER_PORT) via systemd user unit..."
 
-  if [ ! -d "$MIXER_DIR" ]; then
-    log "ERROR: mixer/ not found at $MIXER_DIR — skipping."
-    return 1
-  fi
-
-  if ! command -v systemctl &>/dev/null; then
-    log "   systemctl unavailable — start manually: cd $MIXER_DIR && python3 -m http.server $MIXER_PORT"
-    return 1
-  fi
-
-  systemctl --user daemon-reload 2>/dev/null || true
-  if ! systemctl --user start "$MIXER_SERVICE" 2>/dev/null; then
-    log "   WARNING: could not start $MIXER_SERVICE (is ~/.config/systemd/user/mixer.service present?)."
-    log "   Manual: cd $MIXER_DIR && python3 -m http.server $MIXER_PORT --bind 0.0.0.0"
-    return 1
-  fi
-  log "   Stem Mixer: http://localhost:$MIXER_PORT  (proxy: http://localhost/mixer)"
-  log "   API: talks to AudioMass REST on :5055 directly (stems/jobs)."
-}
-
-stop_mixer() {
-  log "Stopping Stem Mixer..."
-  systemctl --user stop "$MIXER_SERVICE" 2>/dev/null || true
-  pkill -f "http.server $MIXER_PORT" 2>/dev/null || true
-  log "  Stem Mixer stopped."
-}
 
 start_webui() {
   # Open WebUI (LLM hub / chat / tools) — venv app on :3000, served as the Caddy
@@ -805,7 +784,6 @@ stop_all() {
   stop_dj_toolkit
   stop_music_tools
   stop_melody_suite
-  stop_mixer
   stop_webui
   stop_llama_gpu
   stop_seed_llm
@@ -980,10 +958,9 @@ case "${1:-start}" in
     start_dj_toolkit || log "   DJ Toolkit skipped."
     start_music_tools || log "   Music Tools skipped."
     start_melody_suite || log "   Melody Suite skipped."
-    start_mixer || log "   Stem Mixer skipped."
     start_webui || log "   Open WebUI skipped."
     echo ""
-    log "Aether + AudioMass + DJ Toolkit + Music Tools + Melody Suite + Stem Mixer + Open WebUI + GPU LLM + Caddy ready — the full creative stack."
+    log "Aether + AudioMass + DJ Toolkit + Music Tools + Melody Suite + Open WebUI + GPU LLM + Caddy ready — the full creative stack."
     log "Recommended unified access (Caddy on :80):"
     log "  http://localhost/          → Open WebUI (LLM hub / chat / tools)"
     log "  http://localhost/aether/   → Aether (AI music generation + sequencer, hot reload)"
@@ -991,12 +968,13 @@ case "${1:-start}" in
     log "    NOTE: Open WebUI is the Caddy catch-all — the Caddyfile ends with a matcher-less handle (localhost:3000). handle / matches ONLY the root and would break OWUI's /static + /api paths; add new prefix routes ABOVE the catch-all."
     log "  http://localhost/mass     → AudioMass (multitrack waveform editor)"
     log "  http://localhost/melody   → Melody Suite (sheet editor / SATB harmony / MP3→MIDI)"
-    log "  http://localhost/mixer    → Stem Mixer (load AudioMass jobs / mix stems / export WAV)"
+    log "  http://localhost/unrealmix/ → UnrealMix (standalone DAW — own project at /mnt/Pandora/UnrealMix, unit unrealmix.service, not managed here)
+"
     log "Direct ports (no proxy needed):"
     log "  http://localhost:5001     → DJ Toolkit (stems / BPM-key / vocal remover / MP3→MIDI)"
     log "  http://localhost:8091     → Music Tools (melody generator / audio-to-sheet)"
     log "  http://localhost:$MELODY_SUITE_PORT     → Melody Suite (interactive sheet editor / SATB harmony / MP3→MIDI)"
-    log "  http://localhost:$MIXER_PORT     → Stem Mixer direct (5060 is browser-blocked: ERR_UNSAFE_PORT)"
+    log "  http://localhost:$MIXER_PORT     → UnrealMix direct (5060 is browser-blocked: ERR_UNSAFE_PORT)"
     log "  http://localhost:11435    → GPU LLM server (llama.cpp Vulkan — Aether AI on the RX 580)"
     log "  /aether/llm-seed.json     → cloud-LLM seed for fresh browsers (auto-applied on load; cleaned on stop)"
     log ""
@@ -1026,7 +1004,6 @@ case "${1:-start}" in
     start_dj_toolkit || log "   DJ Toolkit skipped."
     start_music_tools || log "   Music Tools skipped."
     start_melody_suite || log "   Melody Suite skipped."
-    start_mixer || log "   Stem Mixer skipped."
     start_webui || log "   Open WebUI skipped."
     log "Restart complete."
     ;;

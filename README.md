@@ -57,11 +57,9 @@ This starts:
 
 **Unified access via Caddy proxy** (highly recommended — see `/mnt/Pandora/caddy/Caddyfile`):
 - http://localhost/aether/   → Aether (generate with AI)
-- http://localhost/mass     → AudioMass (edit the audio you just made)
 
 Alternative manual:
 - Aether: `cd /mnt/Pandora/Project-B && npm run dev`
-- AudioMass: `cd /mnt/Pandora/Project-B/audiomass && ./run.sh start`
 
 **Best quality export**: Aether's recorder now gives you a real `.wav` file (in addition to webm) — perfect for dropping straight into AudioMass multitrack.
 
@@ -87,7 +85,7 @@ This project is now centered on making **Aether and AudioMass work as one seamle
 - Aether generates music with AI (prompts, melodies, intelligent drum patterns, arpeggiator, full step sequencer).
 - One-click recording now exports **proper .wav** (16-bit PCM) in addition to webm — directly compatible with AudioMass.
 - Both tools live in the same Project-B folder.
-- Unified proxy (Caddy) gives clean URLs: `/aether/` and `/mass`.
+- Unified proxy (Caddy) gives clean URLs: `/aether/` and `/mixer/`.
 - Combined launcher script.
 
 ### What still can / should be improved (prioritized)
@@ -127,9 +125,8 @@ See the dedicated `run-aether-with-audiomass.sh` and the Caddyfile at `/mnt/Pand
 
 Current proxy gives you:
 - `/aether/` → Aether
-- `/mass` or `/audiomass` → AudioMass (your editor)
 - `/melody` → Melody Suite (Flask music analysis/generation tools, :5002 — app default is 5000 but the launcher sets 5002)
-- `/mixer` → Stem Mixer (mixing frontend for AudioMass jobs, :5058)
+- `/unrealmix` → UnrealMix (standalone DAW, :5055; old `/mixer` redirects)
 - `/` → Open WebUI
 - `/comfy` → ComfyUI
 
@@ -182,7 +179,7 @@ cd /mnt/Pandora/Project-B
 
 # Access:
 # http://localhost/aether/  (or direct :5173) – generate, use BOUNCE for WAV/stems
-# http://localhost/mass    (or direct :5055) – edit the WAVs
+# http://localhost/unrealmix/ (or direct :5055) – UnrealMix, the standalone DAW
 # Drop downloads to exports/ or audiomass/jobs/_incoming/
 # Load WAVs back via file input in Aether bounce section
 
@@ -203,7 +200,7 @@ If you want any tiny polish after your first run, just say – but per your requ
 #     MUST stay LAST or OWUI's /static + /api break.
 #   - /aether* proxies WITHOUT strip_prefix (Vite runs --base /aether/);
 #     stripping causes a 302 loop. Use http://localhost/aether/ (trailing slash).
-#   - /melody → :5002, /mixer → :5058, /mass|/audiomass → :5055 — keep ports
+#   - /melody → :5002, /mixer → :5055 — keep ports
 #     in sync with run-aether-with-audiomass.sh when either changes.
 #   - The live Caddy is the systemd service reading /etc/caddy/Caddyfile;
 #     the launcher auto-syncs it from /mnt/Pandora/caddy/Caddyfile on drift.
@@ -283,15 +280,14 @@ cd /mnt/Pandora/Project-B
 ./run-aether-with-audiomass.sh start    # also: stop, restart, status, build-aether, caddy-restart
 ```
 
-It brings up Aether (dev server + HMR, :5173 behind `/aether/`), AudioMass (:5055), DJ Toolkit (:5001), Music Tools (:8091), Melody Suite (:5002), Stem Mixer (:5058), Open WebUI (:3000), optional GPU llama.cpp (:11435) + cloud-LLM seed, and Caddy (:80).
+It brings up Aether (dev server + HMR, :5173 behind `/aether/`), DJ Toolkit (:5001), Music Tools (:8091), Melody Suite (:5002), Open WebUI (:3000) (UnrealMix moved out to /mnt/Pandora/UnrealMix — standalone), optional GPU llama.cpp (:11435) + cloud-LLM seed, and Caddy (:80).
 
 **Unified access via Caddy** (source of truth: `/mnt/Pandora/caddy/Caddyfile`):
 
 - http://localhost/ → Open WebUI (main hub + LLM chat)
 - http://localhost/aether/ → Aether (Vite dev with HMR; static only if you switch the Caddyfile block after `npm run build`)
-- http://localhost/mass → AudioMass (multitrack editor)
 - http://localhost/melody → Melody Suite (:5002)
-- http://localhost/mixer → Stem Mixer (:5058)
+- http://localhost/unrealmix → UnrealMix (:5055)
 - http://localhost/comfy → ComfyUI (if running)
 - Ollama stays on 11434 (called directly by Aether and WebUI)
 

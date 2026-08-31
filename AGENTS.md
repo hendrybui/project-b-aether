@@ -1,25 +1,22 @@
 # AGENTS.md — Project-B (Aether + AudioMass)
 
-> **⏸️ PAUSED — credit-limited agent to resume in ~5h (from 2026-08-27 night).**
-> **Do not revert the mixer yet — read this first:**
-> - Henry reports: **beat grid should NOT auto-snap to the first spike / move along the song.** The 2026-08-27 night-3 anchoring (`mixer/mixer.js` downbeat fix that shifts `beatOffset` to the first strong transient) is **reported as wrong behavior** — grid visibly moves/sits on the first spike when it shouldn't. Next agent: **revert or gate that anchoring** (keep `beatOffset` at the detected phase, or make it opt-in), verify `drawRuler`/`drawBeatGrid` are static. See `mixer/mixer.js:detectBPM` tail and `mixer/ROADMAP.md` field-fix note.
-> - Handoff is saved: mixer commit `8eabeb2`, root still clean, `tests/mixer-daw.test.mjs` 16/16. Vault note `Resources/Project-B - Aether + AudioMass Rebuild.md` has full cutover log.
+> **Open mixer issue — beat-grid downbeat anchoring & waveform drag locking:** Henry reports that the edit was never completed and the beat grid was never precisely aligned to lock in — when dragging the waveform, it always misses the intended grid line! Beatmapper wizard, fine-snap (1/16, 1/64), and onset-aware dragging were implemented but precise grid locking during waveform dragging is still open/imperfect. Verify before touching grid or drag snapping. Runtime verification belongs to the user.
 
 Guidance for OpenCode agents working in this workspace.
 
-**Aether** (repo root): AI-assisted web synth + step sequencer (Vite + TypeScript + Tone.js). Pairs with the **AudioMass API** (`backend/`, rebuilt FastAPI) and the **Stem Mixer** (`mixer/`, the DAW frontend) for a local "generate → separate → mix" music environment. `CLAUDE.md` documents the architecture in detail; `README.md` covers workflow/features. Don't duplicate those docs here.
+**Aether** (repo root): AI-assisted web synth + step sequencer (Vite + TypeScript + Tone.js). Pairs with the **AudioMass API** (`backend/`, rebuilt FastAPI) and the **UnrealMix** (`/mnt/Pandora/UnrealMix`, the standalone DAW; renamed from "Stem Mixer" 2026-08-31 — no audiomass association) for a local "generate → separate → mix" music environment. `CLAUDE.md` documents the architecture in detail; `README.md` covers workflow/features. Don't duplicate those docs here. **Caveat:** both predate the 2026-08-27 backend cutover and still reference the deleted `audiomass/` editor at :5055 — treat them as partially stale; this file and `API-CONTRACT.md` are authoritative for the current topology.
 
 ## Backend rebuild (2026-08-27) — CUTOVER COMPLETE
 
-The old AudioMass backend AND editor are **deleted** (`audiomass/` gone; safety archive at `backups/audiomass-archive-2026-08-27.tar.gz` — its own git history is inside). The API now has exactly two clients: the **Stem Mixer** (the DAW frontend) and **Aether** (bounce upload).
+The old AudioMass backend AND editor are **deleted** (`audiomass/` gone; safety archive at `backups/audiomass-archive-2026-08-27.tar.gz` — its own git history is inside). The API has **no live clients** since 2026-08-31: UnrealMix is standalone and AudioMass is scrapped (files kept as feature references only; the Aether "bounce upload" was never a tested integration). The backend stays stopped + disabled.
 
 - **The backend is `backend/` at root** — FastAPI, moved + pruned, own venv (`backend/.venv`), served by systemd user unit `mass-backend.service` on **:5055** (launcher starts/stops it). Editor static mount removed; `/` returns a JSON pointer to the mixer.
 - **Spec:** `API-CONTRACT.md` (repo root) — every route, consumer call-site, the job state machine.
 - **Verified at cutover:** CPU + ROCm warm-pool GPU separation end-to-end on :5055 through `backend/.venv`, 61/61 unit tests (`PYTHONPATH=backend backend/.venv/bin/python -m unittest discover -s backend/tests -v`).
 - **Jobs data:** `AUDIOMASS_JOBS_DIR` (default `/mnt/Pandora/Music/Audiamass`) — shared, all existing separations intact. `backend/docker/` holds the `Dockerfile.demucs-rocm` to rebuild the GPU image.
 - **DJ Toolkit** now uses `backend/.venv` (flask + basic-pitch live there).
-- **Ownership split:** backend work in `backend/`; DAW-frontend work in `mixer/ROADMAP.md` (Phase 2 + 4.2/4.3 done 2026-08-27: clip drag, loop region, keybinds, undo/redo; next candidates: 3.2 separate-from-mixer, 4.4 theme, 5.x effects/automation). The contract is the interface.
-- `mixer/` is a **separate git repo** nested in this one — its commits stay inside it.
+- **Ownership split:** backend work in `backend/`; DAW work in `/mnt/Pandora/UnrealMix/ROADMAP.md` (Phase 6+7 done — console UI + editing suite, per-stem EQ/compressor, separate-from-mixer, sessions; see ROADMAP for live next-candidates). The contract is the interface.
+
 
 ## Commands
 
@@ -40,14 +37,14 @@ node --test tests/plugin-units.test.mjs    # single test file
 - `smoke-audio.test.mjs` spawns its own Vite dev server on a free port and drives it via playwright-core + system Chrome (`AETHER_TEST_CHROME`, default `/usr/bin/google-chrome-stable`); set `AETHER_TEST_URL` to reuse an already-running server.
 - The old `audiomass-*.test.mjs` warm-pool tests were deleted with the old backend (2026-08-27); Python-side tests live in `backend/tests` (61, no GPU/docker needed).
 - Concurrency is pinned to 1 because tests spawn real servers.
-- 2026-08-27: `tests/` is deleted in the uncommitted working tree but tracked in git — `git restore tests/` before `npm test`.
+- `tests/` is git-tracked and present in the working tree (4 files: `smoke-audio`, `mixer-daw`, `plugin-units`, `helpers`).
 
 ## Launcher / proxy
 
-`./run-aether-with-audiomass.sh start` brings up: Aether :5173 (`--base /aether/`), AudioMass :5055, DJ Toolkit :5001, Music Tools :8091, Melody Suite :5002 (env `MELODY_SUITE_PORT`; the app defaults to 5000 — keep the Caddyfile `/melody` route in sync), Stem Mixer :5058 (systemd unit, NOT 5060 — `ERR_UNSAFE_PORT`), Open WebUI :3000, optional GPU llama.cpp + cloud-LLM seed, Caddy :80.
+`./run-aether-with-audiomass.sh start` brings up: Aether :5173 (`--base /aether/`), DJ Toolkit :5001, Music Tools :8091, Melody Suite :5002 (env `MELODY_SUITE_PORT`; the app defaults to 5000 — keep the Caddyfile `/melody` route in sync), UnrealMix lives OUTSIDE this repo at `/mnt/Pandora/UnrealMix` (standalone project, own git repo, `unrealmix.service` on :5055 auto-starts at login; NOT 5060 — `ERR_UNSAFE_PORT`), Open WebUI :3000, optional GPU llama.cpp + cloud-LLM seed, Caddy :80. AudioMass is SCRAPPED — its files stay only as feature references for the standalone mixer (no service, no port, no routes).
 
 - Caddy's `/aether*` handle proxies **without** `strip_prefix` — Vite's `--base /aether/` handles the prefix, and stripping it causes a 302 loop. Use the trailing slash: `http://localhost/aether/`.
-- `/mixer` has an exact-match `redir /mixer /mixer/` — **required**: without it the page loads at a base URL where strip_prefix mangles relative assets (`mixer.js` → `.js` 404) and the app is a dead shell. Same pattern needed for any future `strip_prefix` static route.
+- `/unrealmix` has an exact-match `redir /unrealmix /unrealmix/` (old `/mixer` 301-redirects to it) — **required**: without it the page loads at a base URL where strip_prefix mangles relative assets (`unrealmix.js` → `.js` 404) and the app is a dead shell. Same pattern needed for any future `strip_prefix` static route.
 - The Open WebUI `handle` catch-all must stay LAST in the Caddyfile.
 - Caddy is managed via pidfiles + config-hash in `/tmp`; needs one-time `setcap` for :80. Direct ports work without Caddy.
 - Read the script header comments + `/mnt/Pandora/caddy/Caddyfile` before touching launcher/proxy.
@@ -56,7 +53,7 @@ node --test tests/plugin-units.test.mjs    # single test file
 
 - `src/` — Aether: `audio/` (`engine.ts` synth, `drumKit.ts` drums, `paramMap.ts` 0-1 → real-unit maps), `sequencer/stepSequencer.ts` (Transport-driven clock + note-storing pattern), `ai/` (`ollama.ts` LLM bridge, `patchGenerator.ts`, `melodyGenerator.ts`, `sequenceGenerators.ts`), `ui/` (`knob.ts`, `keyboard.ts`), `main.ts` (wires everything)
 - `backend/` — the AudioMass API (rebuilt FastAPI; see "Backend rebuild" section above). Own venv, tests, docker image recipe.
-- `mixer/` — the Stem Mixer / DAW frontend (see above).
+
 - `melody-suite/`, `dj_toolkit/`, `music-tools/` — launcher-managed sub-projects; don't fold them into the Aether tree
 - `scripts/` — launcher helpers (`start-llama-gpu.sh`, `seed-llm-config.sh`, `check-*.sh`); `check-demucs-gpu.sh` smoke-tests the **old** demucs warm pool (nightly timer deleted 2026-08-26 — manual runs only)
 - `exports/`, `samples/` — shared Aether↔AudioMass handoff folders, auto-created by the launcher; bounced WAVs (`aether-*-to-audiomass.wav`) go to `exports/`
